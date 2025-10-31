@@ -20,9 +20,9 @@
   z-index: 1000;
 }
 
-.h-screen {
-  height: calc(100vh - var(--banner-height));
-}
+/* .min-h-screen { */
+/*   min-height: calc(100vh - var(--banner-height)); */
+/* } */
 
 .banner-left {
   display: flex;
