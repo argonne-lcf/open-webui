@@ -17,7 +17,8 @@ from cryptography.fernet import Fernet
 
 import aiohttp
 from authlib.integrations.starlette_client import OAuth
-from authlib.oidc.core import UserInfo
+from authlib.jose.errors import InvalidClaimError
+from authlib.oidc.core import UserInfo, CodeIDToken
 from fastapi import (
     HTTPException,
     status,
@@ -131,6 +132,25 @@ try:
 except Exception as e:
     log.error(f"Error initializing Fernet with provided key: {e}")
     raise
+
+
+class ORCIDHandledToken(CodeIDToken):
+    def validate_amr(self):
+        """OPTIONAL. Authentication Methods References. JSON array of strings
+        that are identifiers for authentication methods used in the
+        authentication. For instance, values might indicate that both password
+        and OTP authentication methods were used. The definition of particular
+        values to be used in the amr Claim is beyond the scope of this
+        specification. Parties using this claim will need to agree upon the
+        meanings of the values used, which may be context-specific. The amr
+        value is an array of case sensitive strings. However, ORCID sends
+        just a string back and this causes a validation error. This patched
+        version fixes it.
+        """
+        amr = self.get("amr")
+        if amr and not isinstance(self["amr"], list | str):
+            claim_error = "amr"
+            raise InvalidClaimError(claim_error)
 
 
 def encrypt_data(data) -> str:
@@ -1149,7 +1169,7 @@ class OAuthManager:
         try:
             client = self.get_client(provider)
             try:
-                token = await client.authorize_access_token(request)
+                token = await client.authorize_access_token(request, claims_cls=ORCIDHandledToken)
 
                 # [Addition]
                 # Try to extract the access token issued by the WebUI Globus confidential client
