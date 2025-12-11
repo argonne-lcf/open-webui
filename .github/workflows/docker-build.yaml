@@ -84,6 +84,13 @@ jobs:
             prefix=cache-${{ matrix.platform }}-
             latest=false
 
+      - name: Free up disk space before Docker build
+        run: |
+          echo "Cleaning up Docker system..."
+          docker system prune -af || true
+          echo "Removing cached runner logs..."
+          sudo rm -rf /home/runner/actions-runner/cached/* || true
+
       - name: Build Docker image (latest)
         uses: docker/build-push-action@v5
         id: build
@@ -184,6 +191,13 @@ jobs:
           flavor: |
             prefix=cache-cuda-${{ matrix.platform }}-
             latest=false
+
+      - name: Free up disk space before Docker build
+        run: |
+          echo "Cleaning up Docker system..."
+          docker system prune -af || true
+          echo "Removing cached runner logs..."
+          sudo rm -rf /home/runner/actions-runner/cached/* || true
 
       - name: Build Docker image (cuda)
         uses: docker/build-push-action@v5
@@ -286,6 +300,13 @@ jobs:
           flavor: |
             prefix=cache-cuda126-${{ matrix.platform }}-
             latest=false
+
+      - name: Free up disk space before Docker build
+        run: |
+          echo "Cleaning up Docker system..."
+          docker system prune -af || true
+          echo "Removing cached runner logs..."
+          sudo rm -rf /home/runner/actions-runner/cached/* || true
 
       - name: Build Docker image (cuda126)
         uses: docker/build-push-action@v5
@@ -390,6 +411,13 @@ jobs:
             prefix=cache-ollama-${{ matrix.platform }}-
             latest=false
 
+      - name: Free up disk space before Docker build
+        run: |
+          echo "Cleaning up Docker system..."
+          docker system prune -af || true
+          echo "Removing cached runner logs..."
+          sudo rm -rf /home/runner/actions-runner/cached/* || true
+
       - name: Build Docker image (ollama)
         uses: docker/build-push-action@v5
         id: build
@@ -491,6 +519,13 @@ jobs:
           flavor: |
             prefix=cache-slim-${{ matrix.platform }}-
             latest=false
+
+      - name: Free up disk space before Docker build
+        run: |
+          echo "Cleaning up Docker system..."
+          docker system prune -af || true
+          echo "Removing cached runner logs..."
+          sudo rm -rf /home/runner/actions-runner/cached/* || true
 
       - name: Build Docker image (slim)
         uses: docker/build-push-action@v5
