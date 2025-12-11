@@ -393,6 +393,12 @@ GLOBUS_INFERENCE_SERVICE_SCOPE = PersistentConfig(
     os.environ.get("GLOBUS_INFERENCE_SERVICE_SCOPE", ""),
 )
 
+GLOBUS_HIGH_ASSURANCE_POLICY = PersistentConfig(
+    "GLOBUS_HIGH_ASSURANCE_POLICY",
+    "oauth.globus.high_assurance_policy",
+    os.environ.get("GLOBUS_HIGH_ASSURANCE_POLICY", ""),
+)
+
 # [ADDITION]
 # URL to the Inference Gateway API whoami endpoint to authorize users
 GATEWAY_API_WHOAMI_URL = PersistentConfig(
