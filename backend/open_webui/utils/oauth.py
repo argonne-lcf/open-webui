@@ -55,6 +55,7 @@ from open_webui.config import (
     WEBHOOK_URL,
     JWT_EXPIRES_IN,
     GLOBUS_INFERENCE_SERVICE_SCOPE,
+    GLOBUS_HIGH_ASSURANCE_POLICY,
     GATEWAY_API_WHOAMI_URL,
     AppConfig,
 )
@@ -1116,7 +1117,12 @@ class OAuthManager:
         client = self.get_client(provider)
         if client is None:
             raise HTTPException(404)
-        return await client.authorize_redirect(request, redirect_uri)
+        #return await client.authorize_redirect(request, redirect_uri)
+        # [ADDITION] Add extra parameters for Globus to include the policy
+        extra_params = {}
+        if provider == "globus" and GLOBUS_HIGH_ASSURANCE_POLICY.value:
+            extra_params["session_required_policies"] = GLOBUS_HIGH_ASSURANCE_POLICY.value
+        return await client.authorize_redirect(request, redirect_uri, **extra_params)
 
     async def handle_revoke(self, request, provider, user):
         if provider not in OAUTH_PROVIDERS:
