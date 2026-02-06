@@ -46,6 +46,7 @@
 	let auth_type = 'bearer';
 	let key = '';
 	let headers = '';
+	let oauth_scope = ''; // [ADDITION]: OAuth scope string for oauth_scope auth type
 
 	let functionNameFilterList = '';
 	let accessControl = {};
@@ -197,6 +198,7 @@
 				if (data.auth_type) auth_type = data.auth_type;
 				if (data.headers) headers = JSON.stringify(data.headers, null, 2);
 				if (data.key) key = data.key;
+				if (data.oauth_scope) oauth_scope = data.oauth_scope; // [ADDITION]: Load oauth_scope from import
 
 				if (data.info) {
 					id = data.info.id ?? '';
@@ -231,6 +233,7 @@
 				auth_type,
 				headers: headers ? JSON.parse(headers) : undefined,
 				key,
+				oauth_scope, // [ADDITION]: Include oauth_scope in export
 
 				info: {
 					id: id,
@@ -302,6 +305,7 @@
 			headers: headers ? JSON.parse(headers) : undefined,
 
 			key,
+			oauth_scope, // [ADDITION]: Include oauth_scope in connection object
 			config: {
 				enable: enable,
 				function_name_filter_list: functionNameFilterList,
@@ -323,6 +327,7 @@
 		// reset form
 		type = 'openapi';
 		url = '';
+		oauth_scope = ''; // [ADDITION]: Reset oauth_scope
 
 		spec_type = 'url';
 		spec = '';
@@ -355,6 +360,7 @@
 			headers = connection?.headers ? JSON.stringify(connection.headers, null, 2) : '';
 
 			key = connection?.key ?? '';
+			oauth_scope = connection?.oauth_scope ?? ''; // [ADDITION]: Load oauth_scope from connection
 
 			id = connection.info?.id ?? '';
 			name = connection.info?.name ?? '';
@@ -654,6 +660,9 @@
 
 											{#if !direct}
 												<option value="system_oauth">{$i18n.t('OAuth')}</option>
+												<!-- [ADDITION]: Added oauth_scope option to allow using OAuth tokens with specific scopes -->
+												<option value="oauth_scope">{$i18n.t('OAuth Scope')}</option>
+												<!-- [END ADDITION] -->
 												{#if type === 'mcp'}
 													<option value="oauth_2.1">{$i18n.t('OAuth 2.1')}</option>
 												{/if}
@@ -680,6 +689,15 @@
 											>
 												{$i18n.t('Forwards system user session credentials to authenticate')}
 											</div>
+										<!-- [ADDITION]: Input field for oauth_scope auth type -->
+										{:else if auth_type === 'oauth_scope'}
+											<input
+												type="text"
+												bind:value={oauth_scope}
+												placeholder={$i18n.t('Enter OAuth scope (e.g., https://example.com/scope)')}
+												class={`w-full text-sm bg-transparent ${($settings?.highContrastMode ?? false) ? 'placeholder:text-gray-700 dark:placeholder:text-gray-100' : 'placeholder:text-gray-300 dark:placeholder:text-gray-700'}`}
+											/>
+										<!-- [END ADDITION] -->
 										{:else if auth_type === 'system_oauth'}
 											<div
 												class={`text-xs self-center translate-y-[1px] ${($settings?.highContrastMode ?? false) ? 'text-gray-800 dark:text-gray-100' : 'text-gray-500'}`}

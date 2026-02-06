@@ -321,6 +321,21 @@ async def get_tools(
                             headers["Authorization"] = (
                                 f"Bearer {request.state.token.credentials}"
                             )
+                        # [ADDITION]: Added oauth_scope auth type to allow tool servers to use OAuth tokens with specific scopes
+                        elif auth_type == "oauth_scope":
+                            cookies = request.cookies
+                            oauth_token = extra_params.get("__oauth_token__", None)
+                            target_scope = tool_server_connection.get("oauth_scope", "")
+                            
+                            # Search for token with specified scope in other_tokens, fallback to main access_token
+                            access_token = oauth_token.get("access_token", "") if oauth_token else ""
+                            if oauth_token and target_scope:
+                                for other_token in oauth_token.get("other_tokens", []):
+                                    if other_token.get("scope") == target_scope:
+                                        access_token = other_token.get("access_token", "")
+                                        headers["Authorization"] = f"Bearer {access_token}"
+                                        break
+                        # [END ADDITION]
                         elif auth_type == "system_oauth":
                             cookies = request.cookies
                             oauth_token = extra_params.get("__oauth_token__", None)
