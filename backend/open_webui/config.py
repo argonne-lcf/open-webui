@@ -393,6 +393,12 @@ GLOBUS_INFERENCE_SERVICE_SCOPE = PersistentConfig(
     os.environ.get("GLOBUS_INFERENCE_SERVICE_SCOPE", ""),
 )
 
+GLOBUS_HIGH_ASSURANCE_POLICY = PersistentConfig(
+    "GLOBUS_HIGH_ASSURANCE_POLICY",
+    "oauth.globus.high_assurance_policy",
+    os.environ.get("GLOBUS_HIGH_ASSURANCE_POLICY", ""),
+)
+
 # [ADDITION]
 # URL to the Inference Gateway API whoami endpoint to authorize users
 GATEWAY_API_WHOAMI_URL = PersistentConfig(
@@ -419,6 +425,12 @@ AUTHORIZED_GROUPS_PER_IDP = PersistentConfig(
     "AUTHORIZED_GROUPS_PER_IDP",
     "oauth.globus.authorized_groups_per_idp",
     _authorized_groups_per_idp_raw,
+)
+
+ALCF_LIST_ENDPOINTS_URL = PersistentConfig(
+    "ALCF_LIST_ENDPOINTS_URL",
+    "alcf.list_endpoints_url",
+    os.environ.get("ALCF_LIST_ENDPOINTS_URL", "https://inference-api.alcf.anl.gov/resource_server/list-endpoints"),
 )
 
 MICROSOFT_CLIENT_ID = PersistentConfig(
