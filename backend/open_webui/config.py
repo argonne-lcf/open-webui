@@ -427,6 +427,12 @@ AUTHORIZED_GROUPS_PER_IDP = PersistentConfig(
     _authorized_groups_per_idp_raw,
 )
 
+ALCF_LIST_ENDPOINTS_URL = PersistentConfig(
+    "ALCF_LIST_ENDPOINTS_URL",
+    "alcf.list_endpoints_url",
+    os.environ.get("ALCF_LIST_ENDPOINTS_URL", "https://inference-api.alcf.anl.gov/resource_server/list-endpoints"),
+)
+
 MICROSOFT_CLIENT_ID = PersistentConfig(
     "MICROSOFT_CLIENT_ID",
     "oauth.microsoft.client_id",
