@@ -25,6 +25,7 @@ from starlette.background import BackgroundTask
 from open_webui.models.models import Models
 from open_webui.config import (
     CACHE_DIR,
+    ALCF_LIST_ENDPOINTS_URL,
 )
 from open_webui.env import (
     MODELS_CACHE_TTL,
@@ -132,6 +133,74 @@ def openai_reasoning_model_handler(payload):
     return payload
 
 
+# [ADDITION BEGINS]
+def _parse_list_endpoints_models(data: dict, cluster: str) -> set:
+    """
+    Parse ALCF list-endpoints API response and return set of model IDs for the given cluster.
+    Response shape: {"clusters": {"sophia": {"frameworks": {"vllm": {"models": [...]}}, ...}}}
+    """
+    cluster_key = cluster.lower()
+    clusters = data.get("clusters") or {}
+    cluster_info = clusters.get(cluster_key, {})
+    frameworks = cluster_info.get("frameworks") or {}
+    models_set = set()
+    for framework_data in frameworks.values():
+        if isinstance(framework_data, dict) and "models" in framework_data:
+            models_set.update(m for m in framework_data["models"] if m)
+    return models_set
+
+
+async def get_allowed_model_ids(
+    connection_model_ids: list,
+    list_endpoints_url: str,
+    cluster: str,
+    key: str = None,
+) -> list:
+    """
+    Return model IDs that are in both the WebUI connection config and the ALCF list-endpoints
+    response for the given cluster. Queries list_endpoints_url with optional bearer token.
+
+    Args:
+        connection_model_ids: Model IDs configured in the WebUI connection.
+        list_endpoints_url: ALCF list-endpoints URL (e.g. ALCF_LIST_ENDPOINTS_URL).
+        cluster: Cluster name (e.g. "sophia", "metis") to read from the response.
+        key: Optional bearer token for the request.
+
+    Returns:
+        List of model IDs present in both connection config and list-endpoints (order preserved
+        from connection_model_ids). Empty list on fetch/parse error.
+    """
+    if not connection_model_ids or not list_endpoints_url:
+        return list(connection_model_ids) if connection_model_ids else []
+
+    timeout = aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT_MODEL_LIST)
+    try:
+        async with aiohttp.ClientSession(
+            trust_env=True, timeout=timeout
+        ) as session:
+            async with session.get(
+                list_endpoints_url,
+                headers=(
+                    {"Authorization": f"Bearer {key}"} if key else {}
+                ),
+                ssl=AIOHTTP_CLIENT_SESSION_SSL,
+            ) as response:
+                if not response.ok:
+                    log.warning(
+                        f"list_endpoints request error: {response.status} {list_endpoints_url}"
+                    )
+                    return []
+                data = json.loads(await response.text())
+    except Exception as e:
+        log.warning(f"list_endpoints fetch error: {e}")
+        return []
+
+    endpoint_models = _parse_list_endpoints_models(data, cluster)
+    # Preserve order of connection_model_ids
+    return [m for m in connection_model_ids if m in endpoint_models]
+# [ADDITION ENDS]
+
+# [ADDITION BEGINS]
 class AGPTModelStatus:
     def __init__(self, ttl=0):
         self.session = None
@@ -142,22 +211,33 @@ class AGPTModelStatus:
         self.ttl = ttl
         self._task = {}
 
+    def _get_key_hash(self, key: str) -> str:
+        """Hash the API key for secure cache key generation"""
+        if not key:
+            return "anonymous"
+        return hashlib.sha256(key.encode()).hexdigest()
+
     async def fetch(self, cluster: str, url, key=None, user: UserModel = None, timeout=None):
         _cluster = cluster.lower()
+       
+        # Create user-specific cache key using hashed API key
+        key_hash = self._get_key_hash(key)
+        cache_key = f"{key_hash}_{_cluster}"
+        
         if self.session is None:
             self.session = aiohttp.ClientSession(
                 trust_env=True,
                 timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT_MODEL_LIST)
             )
 
-        if _cluster in self.last_update:
-            if time.time() - self.last_update[_cluster] <= self.ttl:
-                log.debug(f"skip jobs query due to TTL")
+        if cache_key in self.last_update:
+            if time.time() - self.last_update[cache_key] <= self.ttl:
+                log.debug(f"skip jobs query due to TTL for key {key_hash}")
                 return True
 
-        if _cluster in self._task:
-            if not self._task[_cluster].done():
-                log.debug(f"query pending")
+        if cache_key in self._task:
+            if not self._task[cache_key].done():
+                log.debug(f"query pending for key {key_hash}")
                 return True
 
         async def do_fetch(self, url, key=None):
@@ -181,17 +261,16 @@ class AGPTModelStatus:
                                 live_models.extend(model["Models"].split(","))
                             elif model["Model Status"] == "starting":
                                 starting_models.extend(model["Models"].split(","))
-
                         for model in status_ret["queued"]:
                             queued_models.extend(model["Models"].split(","))
 
-                        self.live_models[_cluster] = live_models
-                        self.starting_models[_cluster] = starting_models
-                        self.queued_models[_cluster] = queued_models
-                        self.last_update[_cluster] = time.time()
-                        log.debug(f"model_status_tracker:update {_cluster} live_models() {self.live_models[_cluster]}")
-                        log.debug(f"model_status_tracker:update {_cluster} starting_models() {self.starting_models[_cluster]}")
-                        log.debug(f"model_status_tracker:update {_cluster} queue_models() {self.queued_models[_cluster]}")
+                        self.live_models[cache_key] = live_models
+                        self.starting_models[cache_key] = starting_models
+                        self.queued_models[cache_key] = queued_models
+                        self.last_update[cache_key] = time.time()
+                        log.debug(f"model_status_tracker:update {cache_key} live_models() {self.live_models[cache_key]}")
+                        log.debug(f"model_status_tracker:update {cache_key} starting_models() {self.starting_models[cache_key]}")
+                        log.debug(f"model_status_tracker:update {cache_key} queue_models() {self.queued_models[cache_key]}")
                         return True
                     else:
                         log.warning(f"agpt_fetch_model_status request error: {response.status} {url} key={key} user={user}")
@@ -200,25 +279,32 @@ class AGPTModelStatus:
                 log.warning(f"connection error: {e}")
                 return False
 
-        self._task[_cluster] = asyncio.create_task(do_fetch(self, url, key))
+        self._task[cache_key] = asyncio.create_task(do_fetch(self, url, key))
 
         try:
-            return await asyncio.wait_for(self._task[_cluster], timeout=timeout)
+            return await asyncio.wait_for(self._task[cache_key], timeout=timeout)
         except asyncio.TimeoutError:
             log.debug(f"fetch returning, but still fetching {url}")
             return True
 
-    def is_live(self, cluster: str, model_id):
+    def is_live(self, cluster: str, model_id, key=None):
         _cluster = cluster.lower()
-        return model_id in self.live_models[_cluster] if _cluster in self.live_models else False
+        key_hash = self._get_key_hash(key)
+        cache_key = f"{key_hash}_{_cluster}"
+        return model_id in self.live_models[cache_key] if cache_key in self.live_models else False
 
-    def is_starting(self, cluster: str, model_id):
+    def is_starting(self, cluster: str, model_id, key=None):
         _cluster = cluster.lower()
-        return model_id in self.starting_models[_cluster] if _cluster in self.starting_models else False
+        key_hash = self._get_key_hash(key)
+        cache_key = f"{key_hash}_{_cluster}"
+        return model_id in self.starting_models[cache_key] if cache_key in self.starting_models else False
 
-    def is_queued(self, cluster: str, model_id):
+    def is_queued(self, cluster: str, model_id, key=None):
         _cluster = cluster.lower()
-        return model_id in self.queued_models[_cluster] if _cluster in self.queued_models else False
+        key_hash = self._get_key_hash(key)
+        cache_key = f"{key_hash}_{_cluster}"
+        return model_id in self.queued_models[cache_key] if cache_key in self.queued_models else False
+# [ADDITION ENDS]
 
 async def get_headers_and_cookies(
     request: Request,
@@ -499,6 +585,17 @@ async def get_all_models_responses(request: Request, user: UserModel) -> list:
             model_ids = api_config.get("model_ids", [])
             is_aurora = api_config.get("aurora", False)
 
+            # [ADDITION BEGINS]
+            # Filter models IDs based on the user's API key
+            # This will remove models that the user is not allowed to see
+            model_ids = await get_allowed_model_ids(
+                model_ids,
+                ALCF_LIST_ENDPOINTS_URL.value,
+                api_config.get("cluster_name", ""),
+                user.api_key if user else None
+            )
+            # [ADDITION ENDS]
+
             api_key = request.app.state.config.OPENAI_API_KEYS[idx]
 
             if enable:
@@ -591,15 +688,17 @@ async def get_all_models_responses(request: Request, user: UserModel) -> list:
                 if "name" in model and model["name"] is None:
                     del model["name"]
 
+                # [ADDITION BEGINS] - Now passing the key argument to the model_status_tracker methods
                 if "cluster_name" in model:
-                    if model_status_tracker.is_live(model["cluster_name"], model["id"]):
+                    if model_status_tracker.is_live(model["cluster_name"], model["id"], key=user.api_key if user else None):
                         model["status"] = "live"
-                    elif model_status_tracker.is_starting(model["cluster_name"], model["id"]):
+                    elif model_status_tracker.is_starting(model["cluster_name"], model["id"], key=user.api_key if user else None):
                         model["status"] = "starting"
-                    elif model_status_tracker.is_queued(model["cluster_name"], model["id"]):
+                    elif model_status_tracker.is_queued(model["cluster_name"], model["id"], key=user.api_key if user else None):
                         model["status"] = "queued"
                     else:
                         model["status"] = "offline"
+                # [ADDITION ENDS]
 
                 if prefix_id:
                     model["id"] = (
