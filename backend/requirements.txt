@@ -58,6 +58,7 @@ pyarrow==20.0.0 # fix: pin pyarrow version to 20 for rpi compatibility #15897
 einops==0.8.1 
 
 ftfy==6.2.3
+
 pypdf==6.6.2
 fpdf2==2.8.2
 pymdown-extensions==10.16.1
