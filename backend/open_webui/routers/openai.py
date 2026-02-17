@@ -38,6 +38,7 @@ from open_webui.env import (
     BYPASS_MODEL_ACCESS_CONTROL,
 )
 from open_webui.models.users import UserModel
+from open_webui.models.users import Users # [ADDITION] - to get user's API key (the Globus access token)
 
 from open_webui.constants import ERROR_MESSAGES
 
@@ -572,6 +573,10 @@ async def get_all_models_responses(request: Request, user: UserModel) -> list:
             model_ids = api_config.get("model_ids", [])
             is_aurora = api_config.get("aurora", False)
 
+            # [ADDITION BEGINS] - Recover user's API key (the Globus access token)
+            user_api_key = Users.get_user_api_key_by_id(user.id) if user else None
+            # [ADDITION ENDS]
+
             # [ADDITION BEGINS]
             # Filter models IDs based on the user's API key
             # This will remove models that the user is not allowed to see
@@ -579,7 +584,7 @@ async def get_all_models_responses(request: Request, user: UserModel) -> list:
                 model_ids,
                 ALCF_LIST_ENDPOINTS_URL.value,
                 api_config.get("cluster_name", ""),
-                user.api_key if user else None
+                user_api_key
             )
             # [ADDITION ENDS]
 
@@ -610,7 +615,7 @@ async def get_all_models_responses(request: Request, user: UserModel) -> list:
                         model_status_tasks.append(model_status_tracker.fetch(
                             api_config.get("cluster_name", ""),
                             api_config.get("model_status_url", None),
-                            user.api_key,
+                            user_api_key,
                             user=user,
                             timeout=5
                         ))
@@ -677,11 +682,11 @@ async def get_all_models_responses(request: Request, user: UserModel) -> list:
 
                 # [ADDITION BEGINS] - Now passing the key argument to the model_status_tracker methods
                 if "cluster_name" in model:
-                    if model_status_tracker.is_live(model["cluster_name"], model["id"], key=user.api_key if user else None):
+                    if model_status_tracker.is_live(model["cluster_name"], model["id"], key=user_api_key if user else None):
                         model["status"] = "live"
-                    elif model_status_tracker.is_starting(model["cluster_name"], model["id"], key=user.api_key if user else None):
+                    elif model_status_tracker.is_starting(model["cluster_name"], model["id"], key=user_api_key if user else None):
                         model["status"] = "starting"
-                    elif model_status_tracker.is_queued(model["cluster_name"], model["id"], key=user.api_key if user else None):
+                    elif model_status_tracker.is_queued(model["cluster_name"], model["id"], key=user_api_key if user else None):
                         model["status"] = "queued"
                     else:
                         model["status"] = "offline"
@@ -1137,9 +1142,9 @@ async def generate_chat_completion(
     url = request.app.state.config.OPENAI_API_BASE_URLS[idx]
     key = request.app.state.config.OPENAI_API_KEYS[idx]
 
-    # Using the saved per-user api key
-    if user.api_key:
-        key = user.api_key
+    # [ADDITION BEGINS] - Using the saved per-user api key
+    key = Users.get_user_api_key_by_id(user.id) if user else None
+    # [ADDITION ENDS]
 
     # Check if model is a reasoning model that needs special handling
     if is_openai_reasoning_model(payload["model"]):
@@ -1272,8 +1277,9 @@ async def embeddings(request: Request, form_data: dict, user):
     url = request.app.state.config.OPENAI_API_BASE_URLS[idx]
     key = request.app.state.config.OPENAI_API_KEYS[idx]
 
-    if user.api_key:
-        key = user.api_key
+    # [ADDITION BEGINS] - Using the saved per-user api key
+    key = Users.get_user_api_key_by_id(user.id) if user else None
+    # [ADDITION ENDS]
 
     api_config = request.app.state.config.OPENAI_API_CONFIGS.get(
         str(idx),
@@ -1344,8 +1350,11 @@ async def proxy(path: str, request: Request, user=Depends(get_verified_user)):
     idx = 0
     url = request.app.state.config.OPENAI_API_BASE_URLS[idx]
     key = request.app.state.config.OPENAI_API_KEYS[idx]
-    if user.api_key:
-        key = user.api_key
+    
+    # [ADDITION BEGINS] - Using the saved per-user api key
+    key = Users.get_user_api_key_by_id(user.id) if user else None
+    # [ADDITION ENDS]
+
     api_config = request.app.state.config.OPENAI_API_CONFIGS.get(
         str(idx),
         request.app.state.config.OPENAI_API_CONFIGS.get(
