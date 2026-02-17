@@ -1469,6 +1469,7 @@ class OAuthManager:
                                 globus_user_access_token = other_token["access_token"]
                     except:
                         globus_user_access_token = None
+                    
                     # [ADDITION - IMPORTANT] - Authorization layer
                     # Make a request to the Inference Gateway API to see if user is authorized, and deny access if necessary
                     is_authorized, whoami_data, error_message = await validate_user_access_token(globus_user_access_token)
