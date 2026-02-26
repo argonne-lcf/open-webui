@@ -67,7 +67,7 @@ fpdf2==2.8.5
 pymdown-extensions==10.20
 docx2txt==0.9
 python-pptx==1.0.2
-unstructured==0.18.24
+unstructured==0.18.32
 msoffcrypto-tool==5.4.2
 nltk==3.9.2
 Markdown==3.10
@@ -81,7 +81,7 @@ psutil
 sentencepiece
 soundfile==0.13.1
 
-pillow==12.1.0
+pillow==12.1.1
 opencv-python-headless==4.12.0.88
 rapidocr-onnxruntime==1.4.4
 rank-bm25==0.2.2
