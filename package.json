@@ -151,7 +151,10 @@
 		"rollup": "4.59.0",
 		"flatted": "3.4.2",
 		"tar": "7.5.4",
-		"immutable": "5.1.5"
+		"immutable": "5.1.5",
+		"glob": {
+			"minimatch": "5.1.7"
+		}
 	},
 	"engines": {
 		"node": ">=18.13.0 <=22.x.x",
