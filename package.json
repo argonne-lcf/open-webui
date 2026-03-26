@@ -150,7 +150,8 @@
 	"overrides": {
 		"rollup": "4.59.0",
 		"flatted": "3.4.2",
-		"tar": "7.5.4"
+		"tar": "7.5.4",
+		"immutable": "5.1.5"
 	},
 	"engines": {
 		"node": ">=18.13.0 <=22.x.x",
