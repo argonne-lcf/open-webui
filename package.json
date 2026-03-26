@@ -148,7 +148,8 @@
 		"yjs": "^13.6.27"
 	},
 	"overrides": {
-		"rollup": "4.59.0"
+		"rollup": "4.59.0",
+		"flatted": "3.4.2"
 	},
 	"engines": {
 		"node": ">=18.13.0 <=22.x.x",
