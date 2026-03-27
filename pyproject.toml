@@ -17,7 +17,7 @@ dependencies = [
     "cryptography",
     "bcrypt==5.0.0",
     "argon2-cffi==25.1.0",
-    "PyJWT[crypto]==2.10.1",
+    "PyJWT[crypto]==2.12.0",
     "authlib==1.6.9",
 
     "requests==2.32.5",
