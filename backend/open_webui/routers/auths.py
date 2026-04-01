@@ -6,6 +6,9 @@ import logging
 from aiohttp import ClientSession
 import urllib
 
+# [ADDITION BEGINS] - to add timeout during Globus logout
+from aiohttp import ClientTimeout
+# [ADDITION ENDS]
 
 from open_webui.models.auths import (
     AddUserForm,
@@ -37,6 +40,10 @@ from open_webui.env import (
     WEBUI_AUTH_COOKIE_SECURE,
     WEBUI_AUTH_SIGNOUT_REDIRECT_URL,
     ENABLE_INITIAL_ADMIN_SIGNUP,
+)
+from open_webui.env import (
+    AIOHTTP_CLIENT_TIMEOUT,
+    AIOHTTP_CLIENT_SESSION_SSL
 )
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse, Response, JSONResponse
@@ -822,18 +829,27 @@ async def signup(
 async def signout(
     request: Request, response: Response, db: Session = Depends(get_session)
 ):
+    
+    # [ADDITION BEGINS] - redirect browser to Globus logout
+    # Had to delete the original webui block before 'response.delete_cookie("token")'
+    timeout = ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT)
+    try:
+        async with ClientSession(timeout=timeout, trust_env=True) as session:
+            async with session.get(
+                'https://auth.globus.org/v2/web/logout',
+                ssl=AIOHTTP_CLIENT_SESSION_SSL,
+            ) as resp:
+                if resp.ok:
+                    ret = await resp.text()
+                    log.debug(f"logout {ret}")
+                else:
+                    log.warning(f"logout error: {resp.status}")
 
-    # get auth token from headers or cookies
-    token = None
-    auth_header = request.headers.get("Authorization")
-    if auth_header:
-        auth_cred = get_http_authorization_cred(auth_header)
-        token = auth_cred.credentials
-    else:
-        token = request.cookies.get("token")
-
-    if token:
-        await invalidate_token(request, token)
+    except Exception as e:
+        # Handle connection error here
+        log.error(f"logout connection error: {e}")
+    # TODO: Invalidate token
+    # [ADDITION ENDS]
 
     response.delete_cookie("token")
     response.delete_cookie("oui-session")
@@ -843,46 +859,53 @@ async def signout(
     if oauth_session_id:
         response.delete_cookie("oauth_session_id")
 
-        session = OAuthSessions.get_session_by_id(oauth_session_id, db=db)
-        oauth_server_metadata_url = (
-            request.app.state.oauth_manager.get_server_metadata_url(session.provider)
-            if session
-            else None
-        ) or OPENID_PROVIDER_URL.value
+        # [ADDITION BEGINS] - added an "if globus" block to skip webui original logout
+        # Full logout from Globus needs to be done by visiting https://app.globus.org/logout
+        if request.cookies.get("oauth_provider") == "globus":
+            response.delete_cookie("oauth_provider")
+        else:
+        # [ADDITION ENDS] - BUT need to indent the original webui lines below (since in "else" now)
+        # [ indent --> ]
+            session = OAuthSessions.get_session_by_id(oauth_session_id)
+            oauth_server_metadata_url = (
+                request.app.state.oauth_manager.get_server_metadata_url(session.provider)
+                if session
+                else None
+            ) or OPENID_PROVIDER_URL.value
 
-        if session and oauth_server_metadata_url:
-            oauth_id_token = session.token.get("id_token")
-            try:
-                async with ClientSession(trust_env=True) as session:
-                    async with session.get(oauth_server_metadata_url) as r:
-                        if r.status == 200:
-                            openid_data = await r.json()
-                            logout_url = openid_data.get("end_session_endpoint")
+            if session and oauth_server_metadata_url:
+                oauth_id_token = session.token.get("id_token")
+                try:
+                    async with ClientSession(trust_env=True) as session:
+                        async with session.get(oauth_server_metadata_url) as r:
+                            if r.status == 200:
+                                openid_data = await r.json()
+                                logout_url = openid_data.get("end_session_endpoint")
 
-                            if logout_url:
-                                return JSONResponse(
-                                    status_code=200,
-                                    content={
-                                        "status": True,
-                                        "redirect_url": f"{logout_url}?id_token_hint={oauth_id_token}"
-                                        + (
-                                            f"&post_logout_redirect_uri={WEBUI_AUTH_SIGNOUT_REDIRECT_URL}"
-                                            if WEBUI_AUTH_SIGNOUT_REDIRECT_URL
-                                            else ""
-                                        ),
-                                    },
-                                    headers=response.headers,
-                                )
-                        else:
-                            raise Exception("Failed to fetch OpenID configuration")
+                                if logout_url:
+                                    return JSONResponse(
+                                        status_code=200,
+                                        content={
+                                            "status": True,
+                                            "redirect_url": f"{logout_url}?id_token_hint={oauth_id_token}"
+                                            + (
+                                                f"&post_logout_redirect_uri={WEBUI_AUTH_SIGNOUT_REDIRECT_URL}"
+                                                if WEBUI_AUTH_SIGNOUT_REDIRECT_URL
+                                                else ""
+                                            ),
+                                        },
+                                        headers=response.headers,
+                                    )
+                            else:
+                                raise Exception("Failed to fetch OpenID configuration")
 
-            except Exception as e:
-                log.error(f"OpenID signout error: {str(e)}")
-                raise HTTPException(
-                    status_code=500,
-                    detail="Failed to sign out from the OpenID provider.",
-                    headers=response.headers,
-                )
+                except Exception as e:
+                    log.error(f"OpenID signout error: {str(e)}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Failed to sign out from the OpenID provider.",
+                        headers=response.headers,
+                    )
 
     if WEBUI_AUTH_SIGNOUT_REDIRECT_URL:
         return JSONResponse(

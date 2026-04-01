@@ -87,8 +87,15 @@
 						alt={model?.name ?? model.id}
 						class="rounded-full size-5 items-center mr-2"
 					/>
-					<div class="truncate">
-						{model.name}
+					<div class="truncate flex items-center gap-1.5">
+						{#if model?.provider === 'aurora' && model?.cluster_name}
+							<span class="text-[0.7rem] font-semibold px-1 rounded-md bg-gray-500/20 text-gray-700 dark:text-gray-200 uppercase flex-shrink-0">
+								{model.cluster_name}
+							</span>
+						{/if}
+						<span class="truncate">
+							{model.name}
+						</span>
 					</div>
 				</div>
 			</button>

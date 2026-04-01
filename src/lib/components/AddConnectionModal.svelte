@@ -36,8 +36,14 @@
 
 	let connectionType = 'external';
 	let azure = false;
+	let aurora = false;
 	$: azure =
 		(url.includes('azure.') || url.includes('cognitive.microsoft.com')) && !direct ? true : false;
+	
+	// AuroraGPT connections must be external
+	$: if (aurora && connectionType !== 'external') {
+		connectionType = 'external';
+	}
 
 	let prefixId = '';
 	let enable = true;
@@ -49,6 +55,10 @@
 
 	let modelId = '';
 	let modelIds = [];
+
+	// AuroraGPT specific fields
+	let clusterName = '';
+	let modelStatusUrl = '';
 
 	let loading = false;
 
@@ -156,6 +166,26 @@
 			}
 		}
 
+		if (aurora) {
+			if (!clusterName) {
+				loading = false;
+				toast.error($i18n.t('Cluster Name is required for AuroraGPT'));
+				return;
+			}
+
+			if (!modelStatusUrl) {
+				loading = false;
+				toast.error($i18n.t('Model Status URL is required for AuroraGPT'));
+				return;
+			}
+
+			if (connectionType !== 'external') {
+				loading = false;
+				toast.error($i18n.t('AuroraGPT connections must be set to External connection type'));
+				return;
+			}
+		}
+
 		if (headers) {
 			try {
 				const _headers = JSON.parse(headers);
@@ -183,7 +213,8 @@
 				connection_type: connectionType,
 				auth_type,
 				headers: headers ? JSON.parse(headers) : undefined,
-				...(!ollama && azure ? { azure: true, api_version: apiVersion } : {})
+				...(!ollama && azure ? { azure: true, api_version: apiVersion } : {}),
+				...(!ollama && aurora ? { aurora: true, cluster_name: clusterName, model_status_url: modelStatusUrl } : {})
 			}
 		};
 
@@ -198,6 +229,8 @@
 		prefixId = '';
 		tags = [];
 		modelIds = [];
+		clusterName = '';
+		modelStatusUrl = '';
 	};
 
 	const init = () => {
@@ -220,7 +253,10 @@
 			} else {
 				connectionType = connection.config?.connection_type ?? 'external';
 				azure = connection.config?.azure ?? false;
+				aurora = connection.config?.aurora ?? false;
 				apiVersion = connection.config?.api_version ?? '';
+				clusterName = connection.config?.cluster_name ?? '';
+				modelStatusUrl = connection.config?.model_status_url ?? '';
 			}
 		}
 	};
@@ -482,12 +518,28 @@
 								<div>
 									<button
 										on:click={() => {
-											azure = !azure;
+											if (azure) {
+												azure = false;
+												aurora = true;
+												connectionType = 'external'; // AuroraGPT must be external
+											} else if (aurora) {
+												aurora = false;
+												azure = false;
+											} else {
+												azure = true;
+												aurora = false;
+											}
 										}}
 										type="button"
 										class=" text-xs text-gray-700 dark:text-gray-300"
 									>
-										{azure ? $i18n.t('Azure OpenAI') : $i18n.t('OpenAI')}
+										{#if azure}
+											{$i18n.t('Azure OpenAI')}
+										{:else if aurora}
+											{$i18n.t('AuroraGPT')}
+										{:else}
+											{$i18n.t('OpenAI')}
+										{/if}
 									</button>
 								</div>
 							</div>
@@ -510,6 +562,54 @@
 											type="text"
 											bind:value={apiVersion}
 											placeholder={$i18n.t('API Version')}
+											autocomplete="off"
+											required
+										/>
+									</div>
+								</div>
+							</div>
+						{/if}
+
+						{#if aurora}
+							<div class="flex gap-2 mt-2">
+								<div class="flex flex-col w-full">
+									<label
+										for="cluster-name-input"
+										class={`mb-0.5 text-xs text-gray-500
+								${($settings?.highContrastMode ?? false) ? 'text-gray-800 dark:text-gray-100' : ''}`}
+										>{$i18n.t('Cluster Name')}</label
+									>
+
+									<div class="flex-1">
+										<input
+											id="cluster-name-input"
+											class={`w-full text-sm bg-transparent placeholder:text-gray-300 dark:placeholder:text-gray-700 ${($settings?.highContrastMode ?? false) ? 'placeholder:text-gray-700 dark:placeholder:text-gray-100' : 'outline-hidden placeholder:text-gray-300 dark:placeholder:text-gray-700'}`}
+											type="text"
+											bind:value={clusterName}
+											placeholder={$i18n.t('Cluster Name')}
+											autocomplete="off"
+											required
+										/>
+									</div>
+								</div>
+							</div>
+
+							<div class="flex gap-2 mt-2">
+								<div class="flex flex-col w-full">
+									<label
+										for="model-status-url-input"
+										class={`mb-0.5 text-xs text-gray-500
+								${($settings?.highContrastMode ?? false) ? 'text-gray-800 dark:text-gray-100' : ''}`}
+										>{$i18n.t('Model Status URL')}</label
+									>
+
+									<div class="flex-1">
+										<input
+											id="model-status-url-input"
+											class={`w-full text-sm bg-transparent placeholder:text-gray-300 dark:placeholder:text-gray-700 ${($settings?.highContrastMode ?? false) ? 'placeholder:text-gray-700 dark:placeholder:text-gray-100' : 'outline-hidden placeholder:text-gray-300 dark:placeholder:text-gray-700'}`}
+											type="text"
+											bind:value={modelStatusUrl}
+											placeholder={$i18n.t('Model Status URL')}
 											autocomplete="off"
 											required
 										/>

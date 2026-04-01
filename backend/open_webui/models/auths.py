@@ -89,6 +89,7 @@ class AuthsTable:
         role: str = "pending",
         oauth: Optional[dict] = None,
         db: Optional[Session] = None,
+        api_key: Optional[str] = None, # [ADDITION] - to add Globus access token
     ) -> Optional[UserModel]:
         with get_db_context(db) as db:
             log.info("insert_new_auth")
@@ -102,7 +103,7 @@ class AuthsTable:
             db.add(result)
 
             user = Users.insert_new_user(
-                id, name, email, profile_image_url, role, oauth=oauth, db=db
+                id, name, email, profile_image_url, role, oauth=oauth, db=db, api_key=api_key
             )
 
             db.commit()

@@ -37,6 +37,7 @@
 	import { beforeNavigate } from '$app/navigation';
 	import { updated } from '$app/state';
 
+	import { startAutoLogout, stopAutoLogout } from '$lib/utils/autoLogout';
 	import i18n, { initI18n, getLanguages, changeLanguage } from '$lib/i18n';
 
 	import '../tailwind.css';
@@ -735,9 +736,21 @@
 					clearInterval(tokenTimer);
 				}
 				tokenTimer = setInterval(checkTokenExpiry, 15000);
+
+				// Start auto-logout functionality
+				const autoLogoutManager = startAutoLogout({
+					inactivityTimeout: 60, // 60 minutes
+					warningTime: 5, // 5 minutes warning
+					checkInterval: 30 // check every 30 seconds
+				});
+				// Set i18n context for auto-logout messages
+				autoLogoutManager.setI18n(i18n);
 			} else {
 				$socket?.off('events', chatEventHandler);
 				$socket?.off('events:channel', channelEventHandler);
+
+				// Stop auto-logout functionality when user logs out
+				stopAutoLogout();
 			}
 		});
 
@@ -786,14 +799,16 @@
 						await user.set(sessionUser);
 						await config.set(await getBackendConfig());
 					} else {
-						// Redirect Invalid Session User to /auth Page
-						localStorage.removeItem('token');
-						await goto(`/auth?redirect=${encodedUrl}`);
+						// Don't redirect if we're already on the auth page or unauthorized page
+						// Needed because we pass in tokens from OAuth logins via URL fragments
+						if ($page.url.pathname !== '/auth' && $page.url.pathname !== '/unauthorized' && $page.url.pathname !== '/oldauth') {
+							await goto(`/auth?redirect=${encodedUrl}`);
+						}
 					}
 				} else {
-					// Don't redirect if we're already on the auth page
+					// Don't redirect if we're already on the auth page or unauthorized page
 					// Needed because we pass in tokens from OAuth logins via URL fragments
-					if ($page.url.pathname !== '/auth') {
+					if ($page.url.pathname !== '/auth' && $page.url.pathname !== '/unauthorized' && $page.url.pathname !== '/oldauth') {
 						await goto(`/auth?redirect=${encodedUrl}`);
 					}
 				}
@@ -842,6 +857,7 @@
 
 		return () => {
 			window.removeEventListener('resize', onResize);
+			stopAutoLogout();
 		};
 	});
 

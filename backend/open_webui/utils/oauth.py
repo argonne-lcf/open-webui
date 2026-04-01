@@ -7,6 +7,7 @@ import sys
 import urllib
 import uuid
 import json
+from urllib.parse import urljoin, quote
 from datetime import datetime, timedelta
 
 import re
@@ -18,7 +19,8 @@ from typing import Literal
 
 import aiohttp
 from authlib.integrations.starlette_client import OAuth
-from authlib.oidc.core import UserInfo
+from authlib.jose.errors import InvalidClaimError
+from authlib.oidc.core import UserInfo, CodeIDToken
 from fastapi import (
     HTTPException,
     status,
@@ -58,10 +60,14 @@ from open_webui.config import (
     OAUTH_AUDIENCE,
     WEBHOOK_URL,
     JWT_EXPIRES_IN,
+    GLOBUS_INFERENCE_SERVICE_SCOPE,
+    GLOBUS_HIGH_ASSURANCE_POLICY,
+    GATEWAY_API_WHOAMI_URL,
     AppConfig,
 )
 from open_webui.constants import ERROR_MESSAGES, WEBHOOK_MESSAGES
 from open_webui.env import (
+    AIOHTTP_CLIENT_TIMEOUT,
     AIOHTTP_CLIENT_SESSION_SSL,
     WEBUI_NAME,
     WEBUI_AUTH_COOKIE_SAME_SITE,
@@ -74,6 +80,10 @@ from open_webui.utils.misc import parse_duration
 from open_webui.utils.auth import get_password_hash, create_token
 from open_webui.utils.webhook import post_webhook
 from open_webui.utils.groups import apply_default_group_assignment
+
+# [ADDITION BEGINS] - adding authorization check for the Globus token
+from open_webui.utils.inference_auth_check import validate_user_access_token
+# [ADDITION ENDS]
 
 from mcp.shared.auth import (
     OAuthClientMetadata as MCPOAuthClientMetadata,
@@ -142,6 +152,25 @@ try:
 except Exception as e:
     log.error(f"Error initializing Fernet with provided key: {e}")
     raise
+
+
+class ORCIDHandledToken(CodeIDToken):
+    def validate_amr(self):
+        """OPTIONAL. Authentication Methods References. JSON array of strings
+        that are identifiers for authentication methods used in the
+        authentication. For instance, values might indicate that both password
+        and OTP authentication methods were used. The definition of particular
+        values to be used in the amr Claim is beyond the scope of this
+        specification. Parties using this claim will need to agree upon the
+        meanings of the values used, which may be context-specific. The amr
+        value is an array of case sensitive strings. However, ORCID sends
+        just a string back and this causes a validation error. This patched
+        version fixes it.
+        """
+        amr = self.get("amr")
+        if amr and not isinstance(self["amr"], list | str):
+            claim_error = "amr"
+            raise InvalidClaimError(claim_error)
 
 
 def encrypt_data(data) -> str:
@@ -1397,6 +1426,11 @@ class OAuthManager:
         if auth_manager_config.OAUTH_AUDIENCE:
             kwargs["audience"] = auth_manager_config.OAUTH_AUDIENCE
 
+        # [ADDITION BEGINS] Add extra parameters for Globus to include the policy
+        if provider == "globus" and GLOBUS_HIGH_ASSURANCE_POLICY.value:
+            kwargs["session_required_policies"] = GLOBUS_HIGH_ASSURANCE_POLICY.value
+        # [ADDITION ENDS]
+
         return await client.authorize_redirect(request, redirect_uri, **kwargs)
 
     async def handle_callback(self, request, provider, response, db=None):
@@ -1404,6 +1438,7 @@ class OAuthManager:
             raise HTTPException(404)
 
         error_message = None
+        globus_user_access_token = None
         try:
             client = self.get_client(provider)
 
@@ -1418,6 +1453,32 @@ class OAuthManager:
 
             try:
                 token = await client.authorize_access_token(request, **auth_params)
+                #token = await client.authorize_access_token(request, claims_cls=ORCIDHandledToken)
+
+                # [ADDITION BEGINS]
+                # Try to extract the access token issued by the WebUI Globus confidential client
+                # You need to select the access token tied to the inference service's scope
+                # Otherwise the Inference API confidential client won't have the permission to introspect the token
+                #token = await client.authorize_access_token(request, claims_cls=ORCIDHandledToken) # OLDER TOKEN LINE
+                if provider == "globus":
+                    log.debug(f"token {token}")
+                    try:
+                        user_other_tokens = token["other_tokens"]
+                        for other_token in user_other_tokens:
+                            if other_token["scope"] == GLOBUS_INFERENCE_SERVICE_SCOPE.value:
+                                globus_user_access_token = other_token["access_token"]
+                    except:
+                        globus_user_access_token = None
+                    
+                    # [ADDITION - IMPORTANT] - Authorization layer
+                    # Make a request to the Inference Gateway API to see if user is authorized, and deny access if necessary
+                    is_authorized, whoami_data, error_message = await validate_user_access_token(globus_user_access_token)
+                    if not is_authorized:
+                        log.error(f"Unauthorized: {error_message}")
+                        unauthorized_url = urljoin(str(request.app.state.config.WEBUI_URL), f'unauthorized?error={quote(error_message)}')
+                        return RedirectResponse(url=unauthorized_url, headers=response.headers)
+                # [ADDITION ENDS]
+
             except Exception as e:
                 detailed_error = _build_oauth_callback_error_message(e)
                 log.warning(
@@ -1541,6 +1602,12 @@ class OAuthManager:
                     # Update the user object in memory as well,
                     # to avoid problems with the ENABLE_OAUTH_GROUP_MANAGEMENT check below
                     user.role = determined_role
+
+                # [ADDITION BEGINS] - Update the API key (new Globus access token from the latest authentication)
+                if provider == "globus" and globus_user_access_token:
+                    Users.update_user_api_key_by_id(user.id, globus_user_access_token, db=db)
+                # [ADDITION ENDS]
+
                 # Update profile picture if enabled and different from current
                 if auth_manager_config.OAUTH_UPDATE_PICTURE_ON_LOGIN:
                     picture_claim = auth_manager_config.OAUTH_PICTURE_CLAIM
@@ -1583,17 +1650,33 @@ class OAuthManager:
                         log.warning("Username claim is missing, using email as name")
                         name = email
 
-                    user = Auths.insert_new_auth(
-                        email=email,
-                        password=get_password_hash(
-                            str(uuid.uuid4())
-                        ),  # Random password, not used
-                        name=name,
-                        profile_image_url=picture_url,
-                        role=self.get_user_role(None, user_data),
-                        oauth=oauth_data,
-                        db=db,
-                    )
+                    # [ADDITION BEGINS] - adding an "if globus" block to update api_key to use Globus token
+                    if provider == "globus" and globus_user_access_token:
+                        user = Auths.insert_new_auth(
+                            email=email,
+                            password=get_password_hash(
+                                str(uuid.uuid4())
+                            ),  # Random password, not used
+                            name=name,
+                            profile_image_url=picture_url,
+                            role=self.get_user_role(None, user_data),
+                            oauth=oauth_data,
+                            db=db,
+                            api_key=globus_user_access_token
+                        )
+                    else:
+                        user = Auths.insert_new_auth(
+                            email=email,
+                            password=get_password_hash(
+                                str(uuid.uuid4())
+                            ),  # Random password, not used
+                            name=name,
+                            profile_image_url=picture_url,
+                            role=self.get_user_role(None, user_data),
+                            oauth=oauth_data,
+                            db=db,
+                        )
+                    # [ADDITION ENDS]
 
                     if auth_manager_config.WEBHOOK_URL:
                         await post_webhook(
@@ -1657,6 +1740,13 @@ class OAuthManager:
             key="token",
             value=jwt_token,
             httponly=False,  # Required for frontend access
+            samesite=WEBUI_AUTH_COOKIE_SAME_SITE,
+            secure=WEBUI_AUTH_COOKIE_SECURE,
+        )
+        response.set_cookie(
+            key="oauth_provider",
+            value=provider,
+            httponly=True,  # Ensures the cookie is not accessible via JavaScript
             samesite=WEBUI_AUTH_COOKIE_SAME_SITE,
             secure=WEBUI_AUTH_COOKIE_SECURE,
         )

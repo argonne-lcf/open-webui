@@ -24,27 +24,27 @@
 		reasoning_effort: null,
 		logit_bias: null,
 		max_tokens: null,
-		top_k: null,
+		//top_k: null,
 		top_p: null,
-		min_p: null,
+		//min_p: null,
 		frequency_penalty: null,
 		presence_penalty: null,
-		mirostat: null,
-		mirostat_eta: null,
-		mirostat_tau: null,
-		repeat_last_n: null,
-		tfs_z: null,
-		repeat_penalty: null,
-		use_mmap: null,
-		use_mlock: null,
-		think: null,
-		format: null,
-		keep_alive: null,
-		num_keep: null,
-		num_ctx: null,
-		num_batch: null,
-		num_thread: null,
-		num_gpu: null
+		//mirostat: null,
+		//mirostat_eta: null,
+		//mirostat_tau: null,
+		//repeat_last_n: null,
+		//tfs_z: null,
+		//repeat_penalty: null,
+		//use_mmap: null,
+		//use_mlock: null,
+		//think: null,
+		//format: null,
+		//keep_alive: null,
+		//num_keep: null,
+		//num_ctx: null,
+		//num_batch: null,
+		//num_thread: null,
+		//num_gpu: null
 	};
 
 	export let params = defaultParams;
@@ -54,6 +54,8 @@
 </script>
 
 <div class=" space-y-1 text-xs pb-safe-bottom">
+
+	<!-- Stream Chat Response - stream_response -->
 	<div>
 		<Tooltip
 			content={$i18n.t(
@@ -528,6 +530,8 @@
 		{/if}
 	</div>
 
+	<!-- top_k -->
+	<!--
 	<div class=" py-0.5 w-full justify-between">
 		<Tooltip
 			content={$i18n.t(
@@ -582,11 +586,12 @@
 			</div>
 		{/if}
 	</div>
+	-->
 
 	<div class=" py-0.5 w-full justify-between">
 		<Tooltip
 			content={$i18n.t(
-				'Works together with top-k. A higher value (e.g., 0.95) will lead to more diverse text, while a lower value (e.g., 0.5) will generate more focused and conservative text.'
+				'An alternative to sampling with temperature, called nucleus sampling, where the model considers the results of the tokens with top_p probability mass. So 0.1 means only the tokens comprising the top 10% probability mass are considered.'
 			)}
 			placement="top-start"
 			className="inline-tooltip"
@@ -639,6 +644,8 @@
 		{/if}
 	</div>
 
+	<!-- min_p -->
+	<!--
 	<div class=" py-0.5 w-full justify-between">
 		<Tooltip
 			content={$i18n.t(
@@ -693,6 +700,7 @@
 			</div>
 		{/if}
 	</div>
+	-->
 
 	<div class=" py-0.5 w-full justify-between">
 		<Tooltip
@@ -806,6 +814,8 @@
 		{/if}
 	</div>
 
+	<!-- mirostat -->
+	<!--
 	<div class=" py-0.5 w-full justify-between">
 		<Tooltip
 			content={$i18n.t('Enable Mirostat sampling for controlling perplexity.')}
@@ -858,7 +868,10 @@
 			</div>
 		{/if}
 	</div>
+	-->
 
+	<!-- mirostat_eta -->
+	<!--
 	<div class=" py-0.5 w-full justify-between">
 		<Tooltip
 			content={$i18n.t(
@@ -913,7 +926,10 @@
 			</div>
 		{/if}
 	</div>
+	-->
 
+	<!-- mirostat_tau -->
+	<!--
 	<div class=" py-0.5 w-full justify-between">
 		<Tooltip
 			content={$i18n.t(
@@ -969,7 +985,10 @@
 			</div>
 		{/if}
 	</div>
+	-->
 
+	<!-- repeat_last_n -->
+	<!--
 	<div class=" py-0.5 w-full justify-between">
 		<Tooltip
 			content={$i18n.t('Sets how far back for the model to look back to prevent repetition.')}
@@ -1023,7 +1042,10 @@
 			</div>
 		{/if}
 	</div>
+	-->
 
+	<!-- tfs_z -->
+	<!--
 	<div class=" py-0.5 w-full justify-between">
 		<Tooltip
 			content={$i18n.t(
@@ -1079,7 +1101,10 @@
 			</div>
 		{/if}
 	</div>
+	-->
 
+	<!-- repeat_penalty -->
+	<!--
 	<div class=" py-0.5 w-full justify-between">
 		<Tooltip
 			content={$i18n.t(
@@ -1135,8 +1160,12 @@
 			</div>
 		{/if}
 	</div>
+	-->
 
 	{#if admin}
+
+		<!-- use_mmap -->
+		<!--
 		<div class=" py-0.5 w-full justify-between">
 			<Tooltip
 				content={$i18n.t(
@@ -1176,7 +1205,10 @@
 				</div>
 			{/if}
 		</div>
+		-->
 
+		<!-- use_mlock -->
+		<!--
 		<div class=" py-0.5 w-full justify-between">
 			<Tooltip
 				content={$i18n.t(
@@ -1218,8 +1250,11 @@
 				</div>
 			{/if}
 		</div>
+		-->
 	{/if}
 
+	<!-- think -->
+	<!--
 	<div class=" py-0.5 w-full justify-between">
 		<Tooltip
 			content={$i18n.t(
@@ -1250,7 +1285,10 @@
 			</div>
 		</Tooltip>
 	</div>
+	-->
 
+	<!-- format -->
+	<!--
 	<div class=" py-0.5 w-full justify-between">
 		<Tooltip
 			content={$i18n.t('The format to return a response in. Format can be json or a JSON schema.')}
@@ -1287,7 +1325,10 @@
 			</div>
 		{/if}
 	</div>
+	-->
 
+	<!-- num_keep -->
+	<!--
 	<div class=" py-0.5 w-full justify-between">
 		<Tooltip
 			content={$i18n.t(
@@ -1342,7 +1383,10 @@
 			</div>
 		{/if}
 	</div>
+	-->
 
+	<!-- num_ctx -->
+	<!--
 	<div class=" py-0.5 w-full justify-between">
 		<Tooltip
 			content={$i18n.t('Sets the size of the context window used to generate the next token.')}
@@ -1395,7 +1439,10 @@
 			</div>
 		{/if}
 	</div>
+	-->
 
+	<!-- num_batch -->
+	<!--
 	<div class=" py-0.5 w-full justify-between">
 		<Tooltip
 			content={$i18n.t(
@@ -1450,8 +1497,12 @@
 			</div>
 		{/if}
 	</div>
+	-->
 
 	{#if admin}
+
+		<!-- num_thread -->
+		<!--
 		<div class=" py-0.5 w-full justify-between">
 			<Tooltip
 				content={$i18n.t(
@@ -1507,7 +1558,10 @@
 				</div>
 			{/if}
 		</div>
+		-->
 
+		<!-- num_gpu -->
+		<!--
 		<div class=" py-0.5 w-full justify-between">
 			<Tooltip
 				content={$i18n.t(
@@ -1563,7 +1617,10 @@
 				</div>
 			{/if}
 		</div>
+		-->
 
+		<!-- keep_alive -->
+		<!--
 		<div class=" py-0.5 w-full justify-between">
 			<Tooltip
 				content={$i18n.t(
@@ -1603,6 +1660,7 @@
 				</div>
 			{/if}
 		</div>
+		-->
 
 		{#if custom && admin}
 			<div class="flex flex-col justify-center">

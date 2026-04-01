@@ -1,0 +1,47 @@
+/* Metropolis font (if you have it locally, otherwise use Inter) */
+@import url('https://fonts.googleapis.com/css2?family=Metropolis:wght@400;700&display=swap');
+
+:root {
+  --banner-height: 60px;
+}
+
+.global-banner {
+  width: 100%;
+  background: #003B42;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: 'Metropolis', 'Inter', Arial, sans-serif;
+  padding: 0 2rem;
+  min-height: var(--banner-height);
+  height: var(--banner-height);
+  box-sizing: border-box;
+  z-index: 1000;
+}
+
+.banner-left {
+  display: flex;
+  align-items: center;
+}
+
+.banner-logo {
+  height: 40px;
+  margin-right: 1rem;
+}
+
+.banner-right {
+  margin-left: auto;
+  font-size: 1rem;
+  font-weight: 400;
+  opacity: 0.85;
+}
+
+@media (max-width: 600px) {
+  .banner-right {
+    font-size: 0.75rem;
+  }
+  .banner-logo {
+    margin-right: 10rem;
+  }
+}

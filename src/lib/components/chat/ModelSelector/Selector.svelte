@@ -70,6 +70,7 @@
 
 	let selectedTag = '';
 	let selectedConnectionType = '';
+	let selectedStatus = 'live';
 
 	let ollamaVersion = null;
 	let selectedModelIdx = 0;
@@ -132,9 +133,22 @@
 						} else if (selectedConnectionType === 'local') {
 							return item.model?.connection_type === 'local';
 						} else if (selectedConnectionType === 'external') {
-							return item.model?.connection_type === 'external';
+							return item.model?.connection_type === 'external' && item.model?.provider !== 'aurora';
 						} else if (selectedConnectionType === 'direct') {
 							return item.model?.direct;
+						}
+					})
+					.filter((item) => {
+						if (selectedStatus === '') {
+							return true;
+						} else if (selectedStatus === 'live') {
+							return item.model?.status === 'live';
+						} else if (selectedStatus === 'starting') {
+							return item.model?.status === 'starting';
+						} else if (selectedStatus === 'queued') {
+							return item.model?.status === 'queued';
+						} else if (selectedStatus === 'offline') {
+							return item.model?.status === 'offline';
 						}
 					})
 			: items
@@ -152,14 +166,27 @@
 						} else if (selectedConnectionType === 'local') {
 							return item.model?.connection_type === 'local';
 						} else if (selectedConnectionType === 'external') {
-							return item.model?.connection_type === 'external';
+							return item.model?.connection_type === 'external' && item.model?.provider !== 'aurora';
 						} else if (selectedConnectionType === 'direct') {
 							return item.model?.direct;
 						}
 					})
+					.filter((item) => {
+						if (selectedStatus === '') {
+							return true;
+						} else if (selectedStatus === 'live') {
+							return item.model?.status === 'live';
+						} else if (selectedStatus === 'starting') {
+							return item.model?.status === 'starting';
+						} else if (selectedStatus === 'queued') {
+							return item.model?.status === 'queued';
+						} else if (selectedStatus === 'offline') {
+							return item.model?.status === 'offline';
+						}
+					})
 	).filter((item) => !(item.model?.info?.meta?.hidden ?? false));
 
-	$: if (selectedTag || selectedConnectionType) {
+	$: if (selectedTag || selectedConnectionType || selectedStatus) {
 		resetView();
 	} else {
 		resetView();
@@ -395,7 +422,14 @@
 			}}
 		>
 			{#if selectedModel}
-				{selectedModel.label}
+				<div class="flex items-center gap-1.5 truncate">
+					{#if selectedModel.model?.provider === 'aurora' && selectedModel.model?.cluster_name}
+						<span class="text-[0.7rem] font-semibold px-1 rounded-md bg-gray-500/20 text-gray-700 dark:text-gray-200 uppercase flex-shrink-0">
+							{selectedModel.model.cluster_name}
+						</span>
+					{/if}
+					<span class="truncate">{selectedModel.label}</span>
+				</div>
 			{:else}
 				{placeholder}
 			{/if}
@@ -462,38 +496,92 @@
 							class="flex gap-1 w-fit text-center text-sm rounded-full bg-transparent px-1.5 whitespace-nowrap"
 							bind:this={tagsContainerElement}
 						>
+							<button
+								class="min-w-fit outline-none p-1.5 {selectedStatus === 'live'
+									? ''
+									: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition capitalize"
+								on:click={() => {
+									selectedTag = '';
+									selectedConnectionType = '';
+									selectedStatus = 'live';
+								}}
+							>
+								{$i18n.t('Live')}
+							</button>
+
+							<button
+								class="min-w-fit outline-none p-1.5 {selectedStatus === 'starting'
+									? ''
+									: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition capitalize"
+								on:click={() => {
+									selectedTag = '';
+									selectedConnectionType = '';
+									selectedStatus = 'starting';
+								}}
+							>
+								{$i18n.t('Starting')}
+							</button>
+
+							<button
+								class="min-w-fit outline-none p-1.5 {selectedStatus === 'queued'
+									? ''
+									: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition capitalize"
+								on:click={() => {
+									selectedTag = '';
+									selectedConnectionType = '';
+									selectedStatus = 'queued';
+								}}
+							>
+								{$i18n.t('Queued')}
+							</button>
+
+							<button
+								class="min-w-fit outline-none p-1.5 {selectedStatus === 'offline'
+									? ''
+									: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition capitalize"
+								on:click={() => {
+									selectedTag = '';
+									selectedConnectionType = '';
+									selectedStatus = 'offline';
+								}}
+							>
+								{$i18n.t('Offline')}
+							</button>
+
 							{#if items.find((item) => item.model?.connection_type === 'local') || items.find((item) => item.model?.connection_type === 'external') || items.find((item) => item.model?.direct) || tags.length > 0}
 								<button
 									class="min-w-fit outline-none px-1.5 py-0.5 {selectedTag === '' &&
-									selectedConnectionType === ''
+									selectedConnectionType === '' &&
+									selectedStatus === ''
 										? ''
 										: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition capitalize"
 									aria-pressed={selectedTag === '' && selectedConnectionType === ''}
 									on:click={() => {
 										selectedConnectionType = '';
 										selectedTag = '';
+										selectedStatus = '';
 									}}
 								>
 									{$i18n.t('All')}
 								</button>
 							{/if}
 
-							{#if items.find((item) => item.model?.connection_type === 'local')}
-								<button
-									class="min-w-fit outline-none px-1.5 py-0.5 {selectedConnectionType === 'local'
-										? ''
-										: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition capitalize"
-									aria-pressed={selectedConnectionType === 'local'}
-									on:click={() => {
-										selectedTag = '';
-										selectedConnectionType = 'local';
-									}}
-								>
-									{$i18n.t('Local')}
-								</button>
-							{/if}
+							<!-- {#if items.find((item) => item.model?.connection_type === 'local')} -->
+							<!-- 	<button -->
+							<!-- 		class="min-w-fit outline-none px-1.5 py-0.5 {selectedConnectionType === 'local' -->
+							<!-- 			? '' -->
+							<!-- 			: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition capitalize" -->
+							<!-- 		aria-pressed={selectedConnectionType === 'local'} -->
+							<!-- 		on:click={() => { -->
+							<!-- 			selectedTag = ''; -->
+							<!-- 			selectedConnectionType = 'local'; -->
+							<!-- 		}} -->
+							<!-- 	> -->
+							<!-- 		{$i18n.t('Local')} -->
+							<!-- 	</button> -->
+							<!-- {/if} -->
 
-							{#if items.find((item) => item.model?.connection_type === 'external')}
+							{#if items.find((item) => item.model?.connection_type === 'external' && item.model?.provider !== 'aurora')}
 								<button
 									class="min-w-fit outline-none px-1.5 py-0.5 {selectedConnectionType === 'external'
 										? ''
@@ -502,6 +590,7 @@
 									on:click={() => {
 										selectedTag = '';
 										selectedConnectionType = 'external';
+										selectedStatus = '';
 									}}
 								>
 									{$i18n.t('External')}
@@ -517,6 +606,7 @@
 									on:click={() => {
 										selectedTag = '';
 										selectedConnectionType = 'direct';
+										selectedStatus = '';
 									}}
 								>
 									{$i18n.t('Direct')}
@@ -533,6 +623,7 @@
 										on:click={() => {
 											selectedConnectionType = '';
 											selectedTag = tag;
+											selectedStatus = '';
 										}}
 									>
 										{tag.length > 16 ? `${tag.slice(0, 16)}...` : tag}

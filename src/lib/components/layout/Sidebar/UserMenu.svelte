@@ -7,7 +7,7 @@
 	import { fade, slide } from 'svelte/transition';
 
 	import { getUsage } from '$lib/apis';
-	import { getSessionUser, userSignOut } from '$lib/apis/auths';
+	import { getSessionUser, userSignOut, userRevokeToken, userOauthSignOut } from '$lib/apis/auths';
 
 	import { showSettings, mobile, showSidebar, showShortcuts, user, config } from '$lib/stores';
 
@@ -30,7 +30,7 @@
 	import { updateUserStatus } from '$lib/apis/users';
 	import { toast } from 'svelte-sonner';
 
-	const i18n = getContext('i18n');
+	const i18n = getContext<Writable<i18nType>>('i18n');
 
 	export let show = false;
 	export let role = '';
@@ -46,7 +46,7 @@
 
 	const dispatch = createEventDispatcher();
 
-	let usage = null;
+	let usage: any = null;
 	const getUsageInfo = async () => {
 		const res = await getUsage(localStorage.token).catch((error) => {
 			console.error('Error fetching usage info:', error);
@@ -338,8 +338,12 @@
 			<DropdownMenu.Item
 				class="flex rounded-xl py-1.5 px-3 w-full hover:bg-gray-50 dark:hover:bg-gray-800 transition"
 				on:click={async () => {
+					// const revoke_ret = await userRevokeToken(localStorage.token);
+					// console.log('revoke token', revoke_ret)
+					const signout_ret = await userOauthSignOut(localStorage.token);
+					console.log('oauth signout', signout_ret)
 					const res = await userSignOut();
-					user.set(null);
+					user.set(undefined);
 					localStorage.removeItem('token');
 
 					location.href = res?.redirect_url ?? '/auth';
@@ -347,7 +351,7 @@
 				}}
 			>
 				<div class=" self-center mr-3">
-					<SignOut className="w-5 h-5" strokeWidth="1.5" />
+					<SignOut className="w-5 h-5" />
 				</div>
 				<div class=" self-center truncate">{$i18n.t('Sign Out')}</div>
 			</DropdownMenu.Item>

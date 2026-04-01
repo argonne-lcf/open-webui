@@ -1130,9 +1130,21 @@
 												class="size-3.5 max-w-[28px] object-cover rounded-full"
 												src={`${WEBUI_API_BASE_URL}/models/model/profile/image?id=${$models.find((model) => model.id === atSelectedModel.id).id}&lang=${$i18n.language}`}
 											/>
+											<!-- [ADDITION BEGINS] to add cluster name -->
+											<div class="translate-y-[0.5px] flex items-center gap-1.5">
+												{#if atSelectedModel?.provider === 'aurora' && atSelectedModel?.cluster_name}
+													<span class="text-[0.7rem] font-semibold px-1 rounded-md bg-gray-500/20 text-gray-700 dark:text-gray-200 uppercase flex-shrink-0">
+														{atSelectedModel.cluster_name}
+													</span>
+												{/if}
+												<span class="">{atSelectedModel.name}</span>
+											</div>
+											<!-- Original lines from webui
 											<div class="translate-y-[0.5px]">
 												<span class="">{atSelectedModel.name}</span>
 											</div>
+											-->
+											<!-- [ADDITION ENDS] -->
 										</div>
 										<div>
 											<button

@@ -272,8 +272,21 @@
 										}}
 									>
 										<div class="flex items-center gap-1.5">
+											<!-- [ADDITION BEGINS] to add cluster name -->
+											<div class="-translate-y-[1px] flex items-center gap-1.5">
+												{#if model?.provider === 'aurora' && model?.cluster_name}
+													<span class="text-[0.7rem] font-semibold px-1 rounded-md bg-gray-500/20 text-gray-700 dark:text-gray-200 uppercase flex-shrink-0">
+														{model.cluster_name}
+													</span>
+												{/if}
+												<span>
+													{model ? `${model.name}` : history.messages[_messageId]?.model}
+												</span>
+											<!-- Below were the original lines from webui
 											<div class="-translate-y-[1px]">
 												{model ? `${model.name}` : history.messages[_messageId]?.model}
+											-->
+											<!-- [ADDITION EDNS] -->
 											</div>
 										</div>
 									</button>

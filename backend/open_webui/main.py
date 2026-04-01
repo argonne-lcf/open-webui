@@ -42,6 +42,7 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi import Depends
 
 from starlette_compress import CompressMiddleware
 
@@ -59,6 +60,7 @@ from starsessions.stores.redis import RedisStore
 
 from open_webui.utils import logger
 from open_webui.utils.audit import AuditLevel, AuditLoggingMiddleware
+from open_webui.utils.auth import get_verified_user
 from open_webui.utils.logger import start_logger
 from open_webui.socket.main import (
     MODELS,
@@ -1917,6 +1919,10 @@ async def get_app_config(request: Request):
             "providers": {
                 name: config.get("name", name)
                 for name, config in OAUTH_PROVIDERS.items()
+            },
+            "client_ids": {
+                name: oauth_manager.get_client(name).client_id if oauth_manager.get_client(name) else None
+                for name in OAUTH_PROVIDERS.keys()
             }
         },
         "features": {
@@ -2323,6 +2329,13 @@ async def oauth_login_callback(
 ):
     return await oauth_manager.handle_callback(request, provider, response, db=db)
 
+@app.get("/oauth/{provider}/token/revoke")
+async def oauth_revoke_token(provider: str, request: Request, user=Depends(get_verified_user)):
+    return await oauth_manager.handle_revoke(request, provider, user)
+
+@app.get("/oauth/{provider}/signout")
+async def oauth_signout(provider: str, request: Request, user=Depends(get_verified_user)):
+    return await oauth_manager.handle_signout(request, provider, user)
 
 @app.get("/manifest.json")
 async def get_manifest_json():

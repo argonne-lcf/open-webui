@@ -245,6 +245,7 @@ class UsersTable:
         role: str = "pending",
         oauth: Optional[dict] = None,
         db: Optional[Session] = None,
+        api_key: Optional[str] = None, # [ADDITION] - to add globus access token
     ) -> Optional[UserModel]:
         with get_db_context(db) as db:
             user = UserModel(
@@ -258,6 +259,7 @@ class UsersTable:
                     "created_at": int(time.time()),
                     "updated_at": int(time.time()),
                     "oauth": oauth,
+                    "api_key": api_key, # [ADDITION] - to add globus access token
                 }
             )
             result = User(**user.model_dump())

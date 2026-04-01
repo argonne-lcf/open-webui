@@ -358,7 +358,6 @@ GOOGLE_CLIENT_SECRET = PersistentConfig(
     os.environ.get("GOOGLE_CLIENT_SECRET", ""),
 )
 
-
 GOOGLE_OAUTH_SCOPE = PersistentConfig(
     "GOOGLE_OAUTH_SCOPE",
     "oauth.google.scope",
@@ -369,6 +368,76 @@ GOOGLE_REDIRECT_URI = PersistentConfig(
     "GOOGLE_REDIRECT_URI",
     "oauth.google.redirect_uri",
     os.environ.get("GOOGLE_REDIRECT_URI", ""),
+)
+
+GLOBUS_CLIENT_ID = PersistentConfig(
+    "GLOBUS_CLIENT_ID",
+    "oauth.globus.client_id",
+    os.environ.get("GLOBUS_CLIENT_ID", ""),
+)
+
+GLOBUS_CLIENT_SECRET = PersistentConfig(
+    "GLOBUS_CLIENT_SECRET",
+    "oauth.globus.client_secret",
+    os.environ.get("GLOBUS_CLIENT_SECRET", ""),
+)
+
+GLOBUS_OAUTH_SCOPE = PersistentConfig(
+    "GLOBUS_OAUTH_SCOPE",
+    "oauth.globus.scope",
+    os.environ.get("GLOBUS_OAUTH_SCOPE", "openid email profile"),
+)
+
+GLOBUS_REDIRECT_URI = PersistentConfig(
+    "GLOBUS_REDIRECT_URI",
+    "oauth.globus.redirect_uri",
+    os.environ.get("GLOBUS_REDIRECT_URI", ""),
+)
+
+GLOBUS_INFERENCE_SERVICE_SCOPE = PersistentConfig(
+    "GLOBUS_INFERENCE_SERVICE_SCOPE",
+    "oauth.globus.inference_service_scope",
+    os.environ.get("GLOBUS_INFERENCE_SERVICE_SCOPE", ""),
+)
+
+GLOBUS_HIGH_ASSURANCE_POLICY = PersistentConfig(
+    "GLOBUS_HIGH_ASSURANCE_POLICY",
+    "oauth.globus.high_assurance_policy",
+    os.environ.get("GLOBUS_HIGH_ASSURANCE_POLICY", ""),
+)
+
+# [ADDITION]
+# URL to the Inference Gateway API whoami endpoint to authorize users
+GATEWAY_API_WHOAMI_URL = PersistentConfig(
+    "GATEWAY_API_WHOAMI_URL",
+    "oauth.globus.gateway_api_whoami_url",
+    os.environ.get("GATEWAY_API_WHOAMI_URL", "< not set >"),
+)
+
+# List of authorized IDP domains for user validation
+_authorized_idp_domains_raw = [domain.strip() for domain in os.environ.get("AUTHORIZED_IDP_DOMAINS", "").split('\n') if domain.strip()]
+if not _authorized_idp_domains_raw:
+    raise ValueError("AUTHORIZED_IDP_DOMAINS environment variable must be set and contain at least one domain")
+AUTHORIZED_IDP_DOMAINS = PersistentConfig(
+    "AUTHORIZED_IDP_DOMAINS",
+    "oauth.globus.authorized_idp_domains",
+    _authorized_idp_domains_raw,
+)
+
+# Dictionary mapping IDP domains to authorized groups
+_authorized_groups_per_idp_raw = json.loads(os.getenv("AUTHORIZED_GROUPS_PER_IDP", "{}"))
+for key, value in _authorized_groups_per_idp_raw.items():
+    _authorized_groups_per_idp_raw[key] = [v.strip() for v in value.split(",")]
+AUTHORIZED_GROUPS_PER_IDP = PersistentConfig(
+    "AUTHORIZED_GROUPS_PER_IDP",
+    "oauth.globus.authorized_groups_per_idp",
+    _authorized_groups_per_idp_raw,
+)
+
+ALCF_LIST_ENDPOINTS_URL = PersistentConfig(
+    "ALCF_LIST_ENDPOINTS_URL",
+    "alcf.list_endpoints_url",
+    os.environ.get("ALCF_LIST_ENDPOINTS_URL", "https://inference-api.alcf.anl.gov/resource_server/list-endpoints"),
 )
 
 MICROSOFT_CLIENT_ID = PersistentConfig(
@@ -665,6 +734,24 @@ def load_oauth_providers():
             "register": google_oauth_register,
         }
 
+    if GLOBUS_CLIENT_ID.value and GLOBUS_CLIENT_SECRET.value:
+
+        def globus_oauth_register(oauth: OAuth):
+            client = oauth.register(
+                name="globus",
+                client_id=GLOBUS_CLIENT_ID.value,
+                client_secret=GLOBUS_CLIENT_SECRET.value,
+                server_metadata_url="https://auth.globus.org/.well-known/openid-configuration",
+                client_kwargs={"scope": GLOBUS_OAUTH_SCOPE.value},
+                redirect_uri=GLOBUS_REDIRECT_URI.value,
+            )
+            return client
+
+        OAUTH_PROVIDERS["globus"] = {
+            "redirect_uri": GLOBUS_REDIRECT_URI.value,
+            "register": globus_oauth_register,
+        }
+
     if (
         MICROSOFT_CLIENT_ID.value
         and MICROSOFT_CLIENT_SECRET.value
@@ -809,6 +896,8 @@ def load_oauth_providers():
         configured_providers.append("GitHub")
     if FEISHU_CLIENT_ID.value:
         configured_providers.append("Feishu")
+    if GLOBUS_CLIENT_ID.value:
+        configured_providers.append("Globus")
 
     if configured_providers and not OPENID_PROVIDER_URL.value:
         provider_list = ", ".join(configured_providers)

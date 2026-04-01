@@ -84,6 +84,15 @@ jobs:
             prefix=cache-${{ matrix.platform }}-
             latest=false
 
+      - name: Free up disk space
+        run: |
+          echo "Removing stopped containers..."
+          docker container prune -f || true
+          echo "Removing dangling images..."
+          docker image prune -af || true
+          echo "Removing build cache..."
+          docker builder prune -af || true
+
       - name: Build Docker image (latest)
         uses: docker/build-push-action@v5
         id: build
@@ -187,6 +196,15 @@ jobs:
           flavor: |
             prefix=cache-cuda-${{ matrix.platform }}-
             latest=false
+
+      - name: Free up disk space
+        run: |
+          echo "Removing stopped containers..."
+          docker container prune -f || true
+          echo "Removing dangling images..."
+          docker image prune -af || true
+          echo "Removing build cache..."
+          docker builder prune -af || true
 
       - name: Build Docker image (cuda)
         uses: docker/build-push-action@v5
@@ -293,6 +311,15 @@ jobs:
             prefix=cache-cuda126-${{ matrix.platform }}-
             latest=false
 
+      - name: Free up disk space
+        run: |
+          echo "Removing stopped containers..."
+          docker container prune -f || true
+          echo "Removing dangling images..."
+          docker image prune -af || true
+          echo "Removing build cache..."
+          docker builder prune -af || true
+
       - name: Build Docker image (cuda126)
         uses: docker/build-push-action@v5
         id: build
@@ -396,6 +423,15 @@ jobs:
             prefix=cache-ollama-${{ matrix.platform }}-
             latest=false
 
+      - name: Free up disk space
+        run: |
+          echo "Removing stopped containers..."
+          docker container prune -f || true
+          echo "Removing dangling images..."
+          docker image prune -af || true
+          echo "Removing build cache..."
+          docker builder prune -af || true
+
       - name: Build Docker image (ollama)
         uses: docker/build-push-action@v5
         id: build
@@ -497,6 +533,15 @@ jobs:
           flavor: |
             prefix=cache-slim-${{ matrix.platform }}-
             latest=false
+
+      - name: Free up disk space
+        run: |
+          echo "Removing stopped containers..."
+          docker container prune -f || true
+          echo "Removing dangling images..."
+          docker image prune -af || true
+          echo "Removing build cache..."
+          docker builder prune -af || true
 
       - name: Build Docker image (slim)
         uses: docker/build-push-action@v5

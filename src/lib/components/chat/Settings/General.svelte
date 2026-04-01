@@ -8,7 +8,8 @@
 
 	const i18n = getContext('i18n');
 
-	import AdvancedParams from './Advanced/AdvancedParams.svelte';
+	//import AdvancedParams from './Advanced/AdvancedParams.svelte';
+	import AdvancedParams from './Advanced/AdvancedParamsInferenceService.svelte';
 	import Textarea from '$lib/components/common/Textarea.svelte';
 	export let saveSettings: Function;
 	export let getModels: Function;

@@ -166,6 +166,10 @@
 
 	let messageIndexEdit = false;
 
+	let hideMessage = false;
+	$: hideMessage = message?.hidden ?? false;
+
+	let audioParts: Record<number, HTMLAudioElement | null> = {};
 	let speaking = false;
 	let speakingIdx: number | undefined;
 
@@ -197,6 +201,32 @@
 			speakingIdx = undefined;
 		}
 	};
+
+	// [ADDITION BEGINS] - to clear error to continue chat when erros occur
+	const clearResponseError = () => {
+		const target = history?.messages?.[message.id];
+		if (!target) {
+			return;
+		}
+
+		const updatedMessage = {
+			...target,
+			done: true,
+			content: '',
+			hidden: true
+		};
+		delete updatedMessage.error;
+
+		history.messages = {
+			...history.messages,
+			[message.id]: updatedMessage
+		};
+		message = JSON.parse(JSON.stringify(updatedMessage));
+		history.currentId = message.id;
+
+		updateChat?.();
+	};
+	// [ADDITION ENDS]
 
 	const speak = async () => {
 		if (!(message?.content ?? '').trim().length) {
@@ -604,7 +634,7 @@
 
 {#key message.id}
 	<div
-		class=" flex w-full message-{message.id}"
+		class={`flex w-full message-${message.id} ${hideMessage ? 'hidden' : ''}`}
 		id="message-{message.id}"
 		dir={$settings.chatDirection}
 	>
@@ -618,9 +648,23 @@
 		<div class="flex-auto w-0 pl-1 relative">
 			<Name>
 				<Tooltip content={model?.name ?? message.model} placement="top-start">
+					<!-- [ADDITION BEGINS] to add cluster name (e.g. sophia, metis) -->
+					<div class="line-clamp-1 text-black dark:text-white flex items-center gap-1.5">
+						{#if model?.provider === 'aurora' && model?.cluster_name}
+							<span class="text-[0.7rem] font-semibold px-1 rounded-md bg-gray-500/20 text-gray-700 dark:text-gray-200 uppercase flex-shrink-0">
+								{model.cluster_name}
+							</span>
+						{/if}
+						<span class="line-clamp-1">
+							{model?.name ?? message.model}
+						</span>
+					</div>
+					<!-- Those were the original webui lines
 					<span id="response-message-model-name" class="line-clamp-1 text-black dark:text-white">
 						{model?.name ?? message.model}
 					</span>
+					-->
+					<!-- [ADDITION ENDS] -->
 				</Tooltip>
 
 				{#if message.timestamp}
@@ -804,7 +848,12 @@
 							{/if}
 
 							{#if message?.error}
-								<Error content={message?.error?.content ?? message.content} />
+								<!-- [ADDITION BEGINS] to allow users to clear errors and continue their chats --> 
+								<Error content={message?.error?.content ?? message.content} on:clear={clearResponseError} />
+								<!-- Below is the original line from webui
+								 <Error content={message?.error?.content ?? message.content} />
+								-->
+								<!-- [ADDITION ENDS] -->
 							{/if}
 
 							{#if (message?.sources || message?.citations) && (model?.info?.meta?.capabilities?.citations ?? true)}

@@ -79,9 +79,24 @@ else
     ARGS=(--workers "$UVICORN_WORKERS")
 fi
 
+if [ -f $SSL_CERTFILE ]; then
+    if [ -f $SSL_KEYFILE ]; then
+        LAUNCH_SSL=yes
+    fi
+fi
+
 # Run uvicorn
-WEBUI_SECRET_KEY="$WEBUI_SECRET_KEY" exec "$PYTHON_CMD" -m uvicorn open_webui.main:app \
-    --host "$HOST" \
-    --port "$PORT" \
-    --forwarded-allow-ips '*' \
-    "${ARGS[@]}"
+if [ "x$LAUNCH_SSL" == "xyes" ]; then
+    WEBUI_SECRET_KEY="$WEBUI_SECRET_KEY" exec "$PYTHON_CMD" -m uvicorn open_webui.main:app \
+        --host "$HOST" \
+        --port "$PORT" \
+        --ssl-keyfile "$SSL_KEYFILE" --ssl-certfile "$SSL_CERTFILE" \
+        --forwarded-allow-ips '*' \
+        "${ARGS[@]}"
+else
+    WEBUI_SECRET_KEY="$WEBUI_SECRET_KEY" exec "$PYTHON_CMD" -m uvicorn open_webui.main:app \
+        --host "$HOST" \
+        --port "$PORT" \
+        --forwarded-allow-ips '*' \
+        "${ARGS[@]}"
+fi

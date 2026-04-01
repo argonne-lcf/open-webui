@@ -43,8 +43,22 @@
 			</div>
 
 			<div class="flex self-center translate-y-[0.5px]">
-				<div class=" self-center text-sm font-primary line-clamp-1">
-					{model?.name ?? model.id}
+				<div class=" self-center text-sm font-primary flex flex-col items-start gap-0.5">
+					<div class="flex items-center gap-1">
+						{#if model?.provider === 'aurora' && model?.cluster_name}
+							<span class="text-[0.7rem] font-semibold px-1 rounded-md bg-gray-500/20 text-gray-700 dark:text-gray-200 uppercase">
+								{model.cluster_name}
+							</span>
+						{/if}
+						{#if model?.status}
+							<span class="text-[0.7rem] font-semibold px-1 rounded-md uppercase {model.status === 'live' ? 'bg-green-500/20 text-green-700 dark:text-green-200' : 'bg-yellow-500/20 text-yellow-700 dark:text-yellow-200'}">
+								{model.status}
+							</span>
+						{/if}
+					</div>
+					<span class="line-clamp-1 text-sm">
+						{model?.name ?? model.id}
+					</span>
 				</div>
 			</div>
 		</a>

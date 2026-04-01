@@ -3,6 +3,7 @@ import hashlib
 import json
 import logging
 from typing import Optional
+import time
 
 import aiohttp
 from aiocache import cached
@@ -26,6 +27,7 @@ from open_webui.internal.db import get_session
 from open_webui.models.models import Models
 from open_webui.config import (
     CACHE_DIR,
+    ALCF_LIST_ENDPOINTS_URL,
 )
 from open_webui.env import (
     MODELS_CACHE_TTL,
@@ -36,6 +38,7 @@ from open_webui.env import (
     BYPASS_MODEL_ACCESS_CONTROL,
 )
 from open_webui.models.users import UserModel
+from open_webui.models.users import Users # [ADDITION] - to get user's API key (the Globus access token)
 
 from open_webui.constants import ERROR_MESSAGES
 
@@ -80,7 +83,17 @@ async def send_get_request(url, key=None, user: UserModel = None):
                 headers=headers,
                 ssl=AIOHTTP_CLIENT_SESSION_SSL,
             ) as response:
-                return await response.json()
+                if response.ok:
+                    try:
+                        ret = await response.json()
+                    except Exception as e:
+                        ret = await response.text()
+                        ret = json.loads(ret)
+
+                    return ret
+                else:
+                    log.warning(f"request error: {url} key={key} user={{user}} {response.status}")
+                    return None
     except Exception as e:
         # Handle connection error here
         log.error(f"Connection error: {e}")
@@ -117,6 +130,179 @@ def openai_reasoning_model_handler(payload):
 
     return payload
 
+
+# [ADDITION BEGINS]
+def _parse_list_endpoints_models(data: dict, cluster: str) -> set:
+    """
+    Parse ALCF list-endpoints API response and return set of model IDs for the given cluster.
+    Response shape: {"clusters": {"sophia": {"frameworks": {"vllm": {"models": [...]}}, ...}}}
+    """
+    cluster_key = cluster.lower()
+    clusters = data.get("clusters") or {}
+    cluster_info = clusters.get(cluster_key, {})
+    frameworks = cluster_info.get("frameworks") or {}
+    models_set = set()
+    for framework_data in frameworks.values():
+        if isinstance(framework_data, dict) and "models" in framework_data:
+            models_set.update(m for m in framework_data["models"] if m)
+    return models_set
+
+
+async def get_allowed_model_ids(
+    connection_model_ids: list,
+    list_endpoints_url: str,
+    cluster: str,
+    key: str = None,
+) -> list:
+    """
+    Return model IDs that are in both the WebUI connection config and the ALCF list-endpoints
+    response for the given cluster. Queries list_endpoints_url with optional bearer token.
+
+    Args:
+        connection_model_ids: Model IDs configured in the WebUI connection.
+        list_endpoints_url: ALCF list-endpoints URL (e.g. ALCF_LIST_ENDPOINTS_URL).
+        cluster: Cluster name (e.g. "sophia", "metis") to read from the response.
+        key: Optional bearer token for the request.
+
+    Returns:
+        List of model IDs present in both connection config and list-endpoints (order preserved
+        from connection_model_ids). Empty list on fetch/parse error.
+    """
+    if not connection_model_ids or not list_endpoints_url:
+        return list(connection_model_ids) if connection_model_ids else []
+
+    timeout = aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT_MODEL_LIST)
+    try:
+        async with aiohttp.ClientSession(
+            trust_env=True, timeout=timeout
+        ) as session:
+            async with session.get(
+                list_endpoints_url,
+                headers=(
+                    {"Authorization": f"Bearer {key}"} if key else {}
+                ),
+                ssl=AIOHTTP_CLIENT_SESSION_SSL,
+            ) as response:
+                if not response.ok:
+                    log.warning(
+                        f"list_endpoints request error: {response.status} {list_endpoints_url}"
+                    )
+                    return []
+                data = json.loads(await response.text())
+    except Exception as e:
+        log.warning(f"list_endpoints fetch error: {e}")
+        return []
+
+    endpoint_models = _parse_list_endpoints_models(data, cluster)
+    # Preserve order of connection_model_ids
+    return [m for m in connection_model_ids if m in endpoint_models]
+# [ADDITION ENDS]
+
+# [ADDITION BEGINS]
+class AGPTModelStatus:
+    def __init__(self, ttl=0):
+        self.session = None
+        self.live_models = {}
+        self.starting_models = {}
+        self.queued_models = {}
+        self.last_update = {}
+        self.ttl = ttl
+        self._task = {}
+
+    def _get_key_hash(self, key: str) -> str:
+        """Hash the API key for secure cache key generation"""
+        if not key:
+            return "anonymous"
+        return hashlib.sha256(key.encode()).hexdigest()
+
+    async def fetch(self, cluster: str, url, key=None, user: UserModel = None, timeout=None):
+        _cluster = cluster.lower()
+       
+        # Create user-specific cache key using hashed API key
+        key_hash = self._get_key_hash(key)
+        cache_key = f"{key_hash}_{_cluster}"
+        
+        if self.session is None:
+            self.session = aiohttp.ClientSession(
+                trust_env=True,
+                timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT_MODEL_LIST)
+            )
+
+        if cache_key in self.last_update:
+            if time.time() - self.last_update[cache_key] <= self.ttl:
+                log.debug(f"skip jobs query due to TTL for key {key_hash}")
+                return True
+
+        if cache_key in self._task:
+            if not self._task[cache_key].done():
+                log.debug(f"query pending for key {key_hash}")
+                return True
+
+        async def do_fetch(self, url, key=None):
+            try:
+                async with self.session.get(
+                    url,
+                    headers={
+                        **({"Authorization": f"Bearer {key}"} if key else {}),
+                        },
+                    ssl=AIOHTTP_CLIENT_SESSION_SSL
+                ) as response:
+                    if response.ok:
+                        status_ret = json.loads(await response.text())
+                        log.debug(f"AGPTModelStatus: model_status {status_ret}")
+                        live_models = []
+                        starting_models = []
+                        queued_models = []
+
+                        for model in status_ret["running"]:
+                            if model["Model Status"] == "running":
+                                live_models.extend(model["Models"].split(","))
+                            elif model["Model Status"] == "starting":
+                                starting_models.extend(model["Models"].split(","))
+                        for model in status_ret["queued"]:
+                            queued_models.extend(model["Models"].split(","))
+
+                        self.live_models[cache_key] = live_models
+                        self.starting_models[cache_key] = starting_models
+                        self.queued_models[cache_key] = queued_models
+                        self.last_update[cache_key] = time.time()
+                        log.debug(f"model_status_tracker:update {cache_key} live_models() {self.live_models[cache_key]}")
+                        log.debug(f"model_status_tracker:update {cache_key} starting_models() {self.starting_models[cache_key]}")
+                        log.debug(f"model_status_tracker:update {cache_key} queue_models() {self.queued_models[cache_key]}")
+                        return True
+                    else:
+                        log.warning(f"agpt_fetch_model_status request error: {response.status} {url} key={key} user={user}")
+                        return False
+            except Exception as e:
+                log.warning(f"connection error: {e}")
+                return False
+
+        self._task[cache_key] = asyncio.create_task(do_fetch(self, url, key))
+
+        try:
+            return await asyncio.wait_for(self._task[cache_key], timeout=timeout)
+        except asyncio.TimeoutError:
+            log.debug(f"fetch returning, but still fetching {url}")
+            return True
+
+    def is_live(self, cluster: str, model_id, key=None):
+        _cluster = cluster.lower()
+        key_hash = self._get_key_hash(key)
+        cache_key = f"{key_hash}_{_cluster}"
+        return model_id in self.live_models[cache_key] if cache_key in self.live_models else False
+
+    def is_starting(self, cluster: str, model_id, key=None):
+        _cluster = cluster.lower()
+        key_hash = self._get_key_hash(key)
+        cache_key = f"{key_hash}_{_cluster}"
+        return model_id in self.starting_models[cache_key] if cache_key in self.starting_models else False
+
+    def is_queued(self, cluster: str, model_id, key=None):
+        _cluster = cluster.lower()
+        key_hash = self._get_key_hash(key)
+        cache_key = f"{key_hash}_{_cluster}"
+        return model_id in self.queued_models[cache_key] if cache_key in self.queued_models else False
+# [ADDITION ENDS]
 
 async def get_headers_and_cookies(
     request: Request,
@@ -205,7 +391,7 @@ def get_microsoft_entra_id_access_token():
 ##########################################
 
 router = APIRouter()
-
+model_status_tracker = AGPTModelStatus(ttl=1)
 
 @router.get("/config")
 async def get_config(request: Request, user=Depends(get_admin_user)):
@@ -344,6 +530,8 @@ async def speech(request: Request, user=Depends(get_verified_user)):
 
 
 async def get_all_models_responses(request: Request, user: UserModel) -> list:
+    global model_status_tracker
+
     if not request.app.state.config.ENABLE_OPENAI_API:
         return []
 
@@ -361,6 +549,7 @@ async def get_all_models_responses(request: Request, user: UserModel) -> list:
             request.app.state.config.OPENAI_API_KEYS += [""] * (num_urls - num_keys)
 
     request_tasks = []
+    model_status_tasks = []
     for idx, url in enumerate(request.app.state.config.OPENAI_API_BASE_URLS):
         if (str(idx) not in request.app.state.config.OPENAI_API_CONFIGS) and (
             url not in request.app.state.config.OPENAI_API_CONFIGS  # Legacy support
@@ -382,13 +571,62 @@ async def get_all_models_responses(request: Request, user: UserModel) -> list:
 
             enable = api_config.get("enable", True)
             model_ids = api_config.get("model_ids", [])
+            is_aurora = api_config.get("aurora", False)
+
+            # [ADDITION BEGINS] - Recover user's API key (the Globus access token)
+            user_api_key = Users.get_user_api_key_by_id(user.id) if user else None
+            # [ADDITION ENDS]
+
+            # [ADDITION BEGINS]
+            # Filter models IDs based on the user's API key
+            # This will remove models that the user is not allowed to see
+            model_ids = await get_allowed_model_ids(
+                model_ids,
+                ALCF_LIST_ENDPOINTS_URL.value,
+                api_config.get("cluster_name", ""),
+                user_api_key
+            )
+            # [ADDITION ENDS]
+
+            api_key = request.app.state.config.OPENAI_API_KEYS[idx]
 
             if enable:
-                if len(model_ids) == 0:
+                if is_aurora:
+                    if len(model_ids) > 0:
+                        log.debug(f"process {api_config}")
+                        model_list = {
+                            "object": "list",
+                            "data": [
+                                {
+                                    "id": model_id,
+                                    "name": model_id,
+                                    "owned_by": "openai",
+                                    "provider": "aurora",
+                                    "cluster_name": api_config.get("cluster_name", ""),
+                                    "openai": {"id": model_id},
+                                    "urlIdx": idx,
+                                }
+                                for model_id in model_ids
+                            ],
+                        }
+                        request_tasks.append(
+                            asyncio.ensure_future(asyncio.sleep(0, model_list))
+                        )
+                        model_status_tasks.append(model_status_tracker.fetch(
+                            api_config.get("cluster_name", ""),
+                            api_config.get("model_status_url", None),
+                            user_api_key,
+                            user=user,
+                            timeout=5
+                        ))
+                    else:
+                        request_tasks.append(asyncio.ensure_future(asyncio.sleep(0, None)))
+                        model_status_tasks.append(asyncio.ensure_future(asyncio.sleep(0, None)))
+                elif len(model_ids) == 0:
                     request_tasks.append(
                         send_get_request(
                             f"{url}/models",
-                            request.app.state.config.OPENAI_API_KEYS[idx],
+                            api_key,
                             user=user,
                         )
                     )
@@ -414,6 +652,7 @@ async def get_all_models_responses(request: Request, user: UserModel) -> list:
                 request_tasks.append(asyncio.ensure_future(asyncio.sleep(0, None)))
 
     responses = await asyncio.gather(*request_tasks)
+    await asyncio.gather(*model_status_tasks)
 
     for idx, response in enumerate(responses):
         if response:
@@ -440,6 +679,18 @@ async def get_all_models_responses(request: Request, user: UserModel) -> list:
                 # Remove name key if its value is None #16689
                 if "name" in model and model["name"] is None:
                     del model["name"]
+
+                # [ADDITION BEGINS] - Now passing the key argument to the model_status_tracker methods
+                if "cluster_name" in model:
+                    if model_status_tracker.is_live(model["cluster_name"], model["id"], key=user_api_key if user else None):
+                        model["status"] = "live"
+                    elif model_status_tracker.is_starting(model["cluster_name"], model["id"], key=user_api_key if user else None):
+                        model["status"] = "starting"
+                    elif model_status_tracker.is_queued(model["cluster_name"], model["id"], key=user_api_key if user else None):
+                        model["status"] = "queued"
+                    else:
+                        model["status"] = "offline"
+                # [ADDITION ENDS]
 
                 if prefix_id:
                     model["id"] = (
@@ -550,77 +801,77 @@ async def get_models(
 
     if url_idx is None:
         models = await get_all_models(request, user=user)
-    else:
-        url = request.app.state.config.OPENAI_API_BASE_URLS[url_idx]
-        key = request.app.state.config.OPENAI_API_KEYS[url_idx]
-
-        api_config = request.app.state.config.OPENAI_API_CONFIGS.get(
-            str(url_idx),
-            request.app.state.config.OPENAI_API_CONFIGS.get(url, {}),  # Legacy support
-        )
-
-        r = None
-        async with aiohttp.ClientSession(
-            trust_env=True,
-            timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT_MODEL_LIST),
-        ) as session:
-            try:
-                headers, cookies = await get_headers_and_cookies(
-                    request, url, key, api_config, user=user
-                )
-
-                if api_config.get("azure", False):
-                    models = {
-                        "data": api_config.get("model_ids", []) or [],
-                        "object": "list",
-                    }
-                else:
-                    async with session.get(
-                        f"{url}/models",
-                        headers=headers,
-                        cookies=cookies,
-                        ssl=AIOHTTP_CLIENT_SESSION_SSL,
-                    ) as r:
-                        if r.status != 200:
-                            # Extract response error details if available
-                            error_detail = f"HTTP Error: {r.status}"
-                            res = await r.json()
-                            if "error" in res:
-                                error_detail = f"External Error: {res['error']}"
-                            raise Exception(error_detail)
-
-                        response_data = await r.json()
-
-                        # Check if we're calling OpenAI API based on the URL
-                        if "api.openai.com" in url:
-                            # Filter models according to the specified conditions
-                            response_data["data"] = [
-                                model
-                                for model in response_data.get("data", [])
-                                if not any(
-                                    name in model["id"]
-                                    for name in [
-                                        "babbage",
-                                        "dall-e",
-                                        "davinci",
-                                        "embedding",
-                                        "tts",
-                                        "whisper",
-                                    ]
-                                )
-                            ]
-
-                        models = response_data
-            except aiohttp.ClientError as e:
-                # ClientError covers all aiohttp requests issues
-                log.exception(f"Client error: {str(e)}")
-                raise HTTPException(
-                    status_code=500, detail="Open WebUI: Server Connection Error"
-                )
-            except Exception as e:
-                log.exception(f"Unexpected error: {e}")
-                error_detail = f"Unexpected error: {str(e)}"
-                raise HTTPException(status_code=500, detail=error_detail)
+    # else:
+    #     url = request.app.state.config.OPENAI_API_BASE_URLS[url_idx]
+    #     key = request.app.state.config.OPENAI_API_KEYS[url_idx]
+    #
+    #     api_config = request.app.state.config.OPENAI_API_CONFIGS.get(
+    #         str(url_idx),
+    #         request.app.state.config.OPENAI_API_CONFIGS.get(url, {}),  # Legacy support
+    #     )
+    #
+    #     r = None
+    #     async with aiohttp.ClientSession(
+    #         trust_env=True,
+    #         timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT_MODEL_LIST),
+    #     ) as session:
+    #         try:
+    #             headers, cookies = await get_headers_and_cookies(
+    #                 request, url, key, api_config, user=user
+    #             )
+    #
+    #             if api_config.get("azure", False):
+    #                 models = {
+    #                     "data": api_config.get("model_ids", []) or [],
+    #                     "object": "list",
+    #                 }
+    #             else:
+    #                 async with session.get(
+    #                     f"{url}/models",
+    #                     headers=headers,
+    #                     cookies=cookies,
+    #                     ssl=AIOHTTP_CLIENT_SESSION_SSL,
+    #                 ) as r:
+    #                     if r.status != 200:
+    #                         # Extract response error details if available
+    #                         error_detail = f"HTTP Error: {r.status}"
+    #                         res = await r.json()
+    #                         if "error" in res:
+    #                             error_detail = f"External Error: {res['error']}"
+    #                         raise Exception(error_detail)
+    #
+    #                     response_data = await r.json()
+    #
+    #                     # Check if we're calling OpenAI API based on the URL
+    #                     if "api.openai.com" in url:
+    #                         # Filter models according to the specified conditions
+    #                         response_data["data"] = [
+    #                             model
+    #                             for model in response_data.get("data", [])
+    #                             if not any(
+    #                                 name in model["id"]
+    #                                 for name in [
+    #                                     "babbage",
+    #                                     "dall-e",
+    #                                     "davinci",
+    #                                     "embedding",
+    #                                     "tts",
+    #                                     "whisper",
+    #                                 ]
+    #                             )
+    #                         ]
+    #
+    #                     models = response_data
+    #         except aiohttp.ClientError as e:
+    #             # ClientError covers all aiohttp requests issues
+    #             log.exception(f"Client error: {str(e)}")
+    #             raise HTTPException(
+    #                 status_code=500, detail="Open WebUI: Server Connection Error"
+    #             )
+    #         except Exception as e:
+    #             log.exception(f"Unexpected error: {e}")
+    #             error_detail = f"Unexpected error: {str(e)}"
+    #             raise HTTPException(status_code=500, detail=error_detail)
 
     if user.role == "user" and not BYPASS_MODEL_ACCESS_CONTROL:
         models["data"] = await get_filtered_models(models, user)
@@ -856,6 +1107,7 @@ async def generate_chat_completion(
                 detail="Model not found",
             )
 
+    # avoid frequent query for models
     await get_all_models(request, user=user)
     model = request.app.state.OPENAI_MODELS.get(model_id)
     if model:
@@ -889,6 +1141,10 @@ async def generate_chat_completion(
 
     url = request.app.state.config.OPENAI_API_BASE_URLS[idx]
     key = request.app.state.config.OPENAI_API_KEYS[idx]
+
+    # [ADDITION BEGINS] - Using the saved per-user api key
+    key = Users.get_user_api_key_by_id(user.id) if user else None
+    # [ADDITION ENDS]
 
     # Check if model is a reasoning model that needs special handling
     if is_openai_reasoning_model(payload["model"]):
@@ -928,6 +1184,7 @@ async def generate_chat_completion(
         request_url = f"{url}/chat/completions"
 
     payload = json.dumps(payload)
+    
 
     r = None
     session = None
@@ -961,6 +1218,7 @@ async def generate_chat_completion(
             )
         else:
             try:
+                log.debug(f"response: {r}")
                 response = await r.json()
             except Exception as e:
                 log.error(e)
@@ -976,9 +1234,18 @@ async def generate_chat_completion(
     except Exception as e:
         log.exception(e)
 
+        detail = None
+        if e.status == 401:
+            detail = "You are either not allowed to access the service or your Globus token has expired. Please sign out and sign in again with an authorized identity provider."
+        if e.status == 408:
+            if "status" in model and model.get("status") != "live":
+                detail = "Message timeout before model becomes live. Please try again with a new chat with this model."
+        else:
+            detail = "OpenWebUI: Server Connection Error"
+
         raise HTTPException(
             status_code=r.status if r else 500,
-            detail="Open WebUI: Server Connection Error",
+            detail=detail,
         )
     finally:
         if not streaming:
@@ -1009,6 +1276,11 @@ async def embeddings(request: Request, form_data: dict, user):
 
     url = request.app.state.config.OPENAI_API_BASE_URLS[idx]
     key = request.app.state.config.OPENAI_API_KEYS[idx]
+
+    # [ADDITION BEGINS] - Using the saved per-user api key
+    key = Users.get_user_api_key_by_id(user.id) if user else None
+    # [ADDITION ENDS]
+
     api_config = request.app.state.config.OPENAI_API_CONFIGS.get(
         str(idx),
         request.app.state.config.OPENAI_API_CONFIGS.get(url, {}),  # Legacy support
@@ -1078,6 +1350,11 @@ async def proxy(path: str, request: Request, user=Depends(get_verified_user)):
     idx = 0
     url = request.app.state.config.OPENAI_API_BASE_URLS[idx]
     key = request.app.state.config.OPENAI_API_KEYS[idx]
+    
+    # [ADDITION BEGINS] - Using the saved per-user api key
+    key = Users.get_user_api_key_by_id(user.id) if user else None
+    # [ADDITION ENDS]
+
     api_config = request.app.state.config.OPENAI_API_CONFIGS.get(
         str(idx),
         request.app.state.config.OPENAI_API_CONFIGS.get(

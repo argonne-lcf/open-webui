@@ -1,4 +1,5 @@
 import { WEBUI_API_BASE_URL } from '$lib/constants';
+import { WEBUI_BASE_URL } from '$lib/constants';
 
 export const getAdminDetails = async (token: string) => {
 	let error = null;
@@ -323,6 +324,74 @@ export const userSignUp = async (
 
 	return res;
 };
+
+export const userRevokeToken = async (token: string) => {
+	let error = null;
+
+	const res = await fetch(`${WEBUI_BASE_URL}/oauth/globus/token/revoke`, {
+		method: 'GET',
+		headers: {
+			'Content-Type': 'application/json',
+			...(token && { authorization: `Bearer ${token}` })
+		},
+		credentials: 'include'
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			console.error(err);
+			error = err.detail;
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res;
+}
+
+export const userOauthSignOut = async (token: string) => {
+	// Get OAuth configuration to find the client ID
+	// FIXME: We need to find a better way to do this.
+	try {
+		const configResponse = await fetch(`${WEBUI_BASE_URL}/api/config`, {
+			method: 'GET',
+			headers: {
+				'Content-Type': 'application/json'
+			},
+			credentials: 'include'
+		});
+
+		if (configResponse.ok) {
+			const config = await configResponse.json();
+			const globusClientId = config.oauth?.client_ids?.globus;
+			
+			// Open Globus Auth logout page in a new window/tab with client_id parameter
+			if (typeof window !== 'undefined') {
+				const logoutUrl = globusClientId 
+					? `https://auth.globus.org/v2/web/logout?client_id=${globusClientId}`
+					: 'https://auth.globus.org/v2/web/logout';
+				window.open(logoutUrl, '_blank');
+			}
+		} else {
+			// Fallback to logout without client_id if config fetch fails
+			if (typeof window !== 'undefined') {
+				window.open('https://auth.globus.org/v2/web/logout', '_blank');
+			}
+		}
+	} catch (error) {
+		console.error('Error fetching OAuth config:', error);
+		// Fallback to logout without client_id if there's an error
+		if (typeof window !== 'undefined') {
+			window.open('https://auth.globus.org/v2/web/logout', '_blank');
+		}
+	}
+	
+	return null;
+}
 
 export const userSignOut = async () => {
 	let error = null;

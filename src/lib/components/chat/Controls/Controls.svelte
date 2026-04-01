@@ -4,7 +4,8 @@
 	const i18n = getContext('i18n');
 
 	import XMark from '$lib/components/icons/XMark.svelte';
-	import AdvancedParams from '../Settings/Advanced/AdvancedParams.svelte';
+	//import AdvancedParams from '../Settings/Advanced/AdvancedParams.svelte';
+	import AdvancedParams from '../Settings/Advanced/AdvancedParamsInferenceService.svelte';
 	import Valves from '$lib/components/chat/Controls/Valves.svelte';
 	import FileItem from '$lib/components/common/FileItem.svelte';
 	import Collapsible from '$lib/components/common/Collapsible.svelte';

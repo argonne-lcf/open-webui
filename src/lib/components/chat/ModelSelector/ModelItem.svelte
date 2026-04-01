@@ -86,11 +86,16 @@
 			</div>
 
 			<div class="flex items-center">
-				<Tooltip content={`${item.label} (${item.value})`} placement="top-start">
-					<div class="line-clamp-1">
-						{item.label}
-					</div>
-				</Tooltip>
+			<Tooltip content={`${item.model?.provider === 'aurora' && item.model?.cluster_name ? `[${item.model.cluster_name}] ` : ''}${item.label} (${item.value})`} placement="top-start">
+				<div class="line-clamp-1 flex items-center gap-1.5">
+					{#if item.model?.provider === 'aurora' && item.model?.cluster_name}
+						<span class="text-[0.7rem] font-semibold px-1 rounded-md bg-gray-500/20 text-gray-700 dark:text-gray-200 uppercase">
+							{item.model.cluster_name}
+						</span>
+					{/if}
+					<span>{item.label}</span>
+				</div>
+			</Tooltip>
 			</div>
 
 			<div class=" shrink-0 flex items-center gap-2">
