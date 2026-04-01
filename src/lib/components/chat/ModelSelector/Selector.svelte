@@ -203,6 +203,7 @@
 	let selectedConnectionType = '';
 	let selectedFilter = '';
 	let modelFilterItems = [];
+	let selectedStatus = 'live'; // [ADDITION] - ALCF fork: model status filter (live/starting/queued/offline)
 
 	let ollamaVersion = null;
 	let providerDownloadConnections = [];
@@ -264,9 +265,22 @@
 						} else if (selectedConnectionType === 'local') {
 							return item.model?.connection_type === 'local';
 						} else if (selectedConnectionType === 'external') {
-							return item.model?.connection_type === 'external';
+							return item.model?.connection_type === 'external' && item.model?.provider !== 'aurora';
 						} else if (selectedConnectionType === 'direct') {
 							return item.model?.direct;
+						}
+					})
+					.filter((item) => {
+						if (selectedStatus === '') {
+							return true;
+						} else if (selectedStatus === 'live') {
+							return item.model?.status === 'live';
+						} else if (selectedStatus === 'starting') {
+							return item.model?.status === 'starting';
+						} else if (selectedStatus === 'queued') {
+							return item.model?.status === 'queued';
+						} else if (selectedStatus === 'offline') {
+							return item.model?.status === 'offline';
 						}
 					})
 			: items
@@ -284,9 +298,22 @@
 						} else if (selectedConnectionType === 'local') {
 							return item.model?.connection_type === 'local';
 						} else if (selectedConnectionType === 'external') {
-							return item.model?.connection_type === 'external';
+							return item.model?.connection_type === 'external' && item.model?.provider !== 'aurora';
 						} else if (selectedConnectionType === 'direct') {
 							return item.model?.direct;
+						}
+					})
+					.filter((item) => {
+						if (selectedStatus === '') {
+							return true;
+						} else if (selectedStatus === 'live') {
+							return item.model?.status === 'live';
+						} else if (selectedStatus === 'starting') {
+							return item.model?.status === 'starting';
+						} else if (selectedStatus === 'queued') {
+							return item.model?.status === 'queued';
+						} else if (selectedStatus === 'offline') {
+							return item.model?.status === 'offline';
 						}
 					})
 	).filter((item) => includeHidden || !(item.model?.info?.meta?.hidden ?? false));
@@ -333,40 +360,56 @@
 	$: if (
 		selectedTag !== undefined ||
 		selectedConnectionType !== undefined ||
+		selectedStatus !== undefined ||
 		searchValue !== undefined
 	) {
 		resetView();
 	}
 
 	$: modelFilterItems = [
-		...(items.find((item) => item.model?.connection_type === 'local')
-			? [{ value: 'connection:local', label: $i18n.t('Local') }]
-			: []),
-		...(items.find((item) => item.model?.connection_type === 'external')
+		// [MODIFICATION BEGINS] - ALCF fork: status filters, no "Local" filter, "External" excludes AuroraGPT models
+		{ value: 'status:live', label: $i18n.t('Live') },
+		{ value: 'status:starting', label: $i18n.t('Starting') },
+		{ value: 'status:queued', label: $i18n.t('Queued') },
+		{ value: 'status:offline', label: $i18n.t('Offline') },
+		...(items.find(
+			(item) => item.model?.connection_type === 'external' && item.model?.provider !== 'aurora'
+		)
 			? [{ value: 'connection:external', label: $i18n.t('External') }]
 			: []),
+		// [MODIFICATION ENDS]
 		...(items.find((item) => item.model?.direct)
 			? [{ value: 'connection:direct', label: $i18n.t('Direct') }]
 			: []),
 		...tags.map((tag) => ({ value: `tag:${tag}`, label: tag }))
 	];
 
-	$: selectedFilter = selectedConnectionType
-		? `connection:${selectedConnectionType}`
-		: selectedTag
-			? `tag:${selectedTag}`
-			: '';
+	$: selectedFilter = selectedStatus
+		? `status:${selectedStatus}`
+		: selectedConnectionType
+			? `connection:${selectedConnectionType}`
+			: selectedTag
+				? `tag:${selectedTag}`
+				: '';
 
 	const setModelFilter = (filterValue: string) => {
 		if (!filterValue) {
 			selectedConnectionType = '';
 			selectedTag = '';
+			selectedStatus = '';
+		} else if (filterValue.startsWith('status:')) {
+			// [ADDITION] - ALCF fork: model status filter
+			selectedConnectionType = '';
+			selectedTag = '';
+			selectedStatus = filterValue.replace('status:', '');
 		} else if (filterValue.startsWith('connection:')) {
 			selectedConnectionType = filterValue.replace('connection:', '');
 			selectedTag = '';
+			selectedStatus = '';
 		} else if (filterValue.startsWith('tag:')) {
 			selectedConnectionType = '';
 			selectedTag = filterValue.replace('tag:', '');
+			selectedStatus = '';
 		}
 	};
 
@@ -915,6 +958,14 @@
 				);
 			}}
 		>
+			<!-- [ADDITION] - cluster name badge (e.g. sophia, metis) -->
+			{#if selectedModel && selectedModel.model?.provider === 'aurora' && selectedModel.model?.cluster_name}
+				<span
+					class="text-[0.7rem] font-semibold px-1 mr-1.5 rounded-md bg-gray-500/20 text-gray-700 dark:text-gray-200 uppercase flex-shrink-0"
+				>
+					{selectedModel.model.cluster_name}
+				</span>
+			{/if}
 			<span class="min-w-0 flex-1 truncate">{triggerLabel}</span>
 			<ChevronDown className="ml-1 size-2.5 shrink-0 self-center" strokeWidth="2.5" />
 		</div>

@@ -2402,6 +2402,11 @@ async def get_app_config(request: Request):
                 else {}
             ),
             'auto_redirect': config.get('oauth.auto_redirect'),
+            # [MODIFICATION] - ALCF fork: expose client ids (used by the Globus logout flow)
+            'client_ids': {
+                name: oauth_manager.get_client(name).client_id if oauth_manager.get_client(name) else None
+                for name in OAUTH_PROVIDERS.keys()
+            },
         },
         'features': {
             'slim': USE_SLIM,
@@ -2948,6 +2953,13 @@ async def oauth_login_callback(
     """
     return await oauth_manager.handle_callback(request, provider, response, db=db)
 
+@app.get("/oauth/{provider}/token/revoke")
+async def oauth_revoke_token(provider: str, request: Request, user=Depends(get_verified_user)):
+    return await oauth_manager.handle_revoke(request, provider, user)
+
+@app.get("/oauth/{provider}/signout")
+async def oauth_signout(provider: str, request: Request, user=Depends(get_verified_user)):
+    return await oauth_manager.handle_signout(request, provider, user)
 
 ############################
 # OIDC Back-Channel Logout

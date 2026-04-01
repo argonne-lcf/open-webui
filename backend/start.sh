@@ -104,6 +104,12 @@ else
   ARGS=(--workers "$UVICORN_WORKERS" --ws-per-message-deflate "${UVICORN_WS_PER_MESSAGE_DEFLATE:-true}")
 fi
 
+# [MODIFICATION BEGINS] - ALCF fork: launch with SSL when cert and key files exist
+if [ -n "${SSL_CERTFILE:-}" ] && [ -f "$SSL_CERTFILE" ] && [ -n "${SSL_KEYFILE:-}" ] && [ -f "$SSL_KEYFILE" ]; then
+  ARGS=(--ssl-keyfile "$SSL_KEYFILE" --ssl-certfile "$SSL_CERTFILE" "${ARGS[@]}")
+fi
+# [MODIFICATION ENDS]
+
 exec env WEBUI_SECRET_KEY="${WEBUI_SECRET_KEY:-}" \
   "$PYTHON_CMD" -m uvicorn open_webui.main:app \
     --host "$HOST" \

@@ -2592,6 +2592,40 @@ if _google_oauth_authorize_params:
     except (JSONCodec.JSONDecodeError, TypeError):
         log.warning('GOOGLE_OAUTH_AUTHORIZE_PARAMS is not valid JSON, ignoring')
 
+# [MODIFICATION BEGINS] - ALCF fork: Globus Auth and ALCF inference endpoint settings
+GLOBUS_CLIENT_ID = os.getenv('GLOBUS_CLIENT_ID', '')
+
+GLOBUS_CLIENT_SECRET = os.getenv('GLOBUS_CLIENT_SECRET', '')
+
+GLOBUS_OAUTH_SCOPE = os.getenv('GLOBUS_OAUTH_SCOPE', 'openid email profile')
+
+GLOBUS_REDIRECT_URI = os.getenv('GLOBUS_REDIRECT_URI', '')
+
+GLOBUS_INFERENCE_SERVICE_SCOPE = os.getenv('GLOBUS_INFERENCE_SERVICE_SCOPE', '')
+
+GLOBUS_HIGH_ASSURANCE_POLICY = os.getenv('GLOBUS_HIGH_ASSURANCE_POLICY', '')
+
+# URL to the Inference Gateway API whoami endpoint to authorize users
+GATEWAY_API_WHOAMI_URL = os.getenv('GATEWAY_API_WHOAMI_URL', '< not set >')
+
+# List of authorized IDP domains for user validation
+AUTHORIZED_IDP_DOMAINS = [
+    domain.strip() for domain in os.getenv('AUTHORIZED_IDP_DOMAINS', '').split('\n') if domain.strip()
+]
+if not AUTHORIZED_IDP_DOMAINS:
+    raise ValueError('AUTHORIZED_IDP_DOMAINS environment variable must be set and contain at least one domain')
+
+# Dictionary mapping IDP domains to authorized groups
+AUTHORIZED_GROUPS_PER_IDP = {
+    key: [v.strip() for v in value.split(',')]
+    for key, value in JSONCodec.loads(os.getenv('AUTHORIZED_GROUPS_PER_IDP', '{}')).items()
+}
+
+ALCF_LIST_ENDPOINTS_URL = os.getenv(
+    'ALCF_LIST_ENDPOINTS_URL', 'https://inference-api.alcf.anl.gov/resource_server/list-endpoints'
+)
+# [MODIFICATION ENDS]
+
 MICROSOFT_CLIENT_ID = os.getenv('MICROSOFT_CLIENT_ID', '')
 
 MICROSOFT_CLIENT_SECRET = os.getenv('MICROSOFT_CLIENT_SECRET', '')
@@ -2838,6 +2872,25 @@ def load_oauth_providers():
             'sub_claim': 'user_id',
         }
 
+    # [MODIFICATION BEGINS] - ALCF fork: Globus OAuth provider
+    if GLOBUS_CLIENT_ID and GLOBUS_CLIENT_SECRET:
+
+        def globus_oauth_register(oauth: OAuth):
+            client = oauth.register(
+                name='globus',
+                client_id=GLOBUS_CLIENT_ID,
+                client_secret=GLOBUS_CLIENT_SECRET,
+                server_metadata_url='https://auth.globus.org/.well-known/openid-configuration',
+                client_kwargs=oauth_client_kwargs(GLOBUS_OAUTH_SCOPE),
+                redirect_uri=GLOBUS_REDIRECT_URI,
+            )
+            return client
+
+        OAUTH_PROVIDERS['globus'] = {
+            'register': globus_oauth_register,
+        }
+    # [MODIFICATION ENDS]
+
     configured_providers = []
     if GOOGLE_CLIENT_ID:
         configured_providers.append('Google')
@@ -2847,6 +2900,8 @@ def load_oauth_providers():
         configured_providers.append('GitHub')
     if FEISHU_CLIENT_ID:
         configured_providers.append('Feishu')
+    if GLOBUS_CLIENT_ID:  # [MODIFICATION] - ALCF fork
+        configured_providers.append('Globus')
 
     if configured_providers and not OPENID_PROVIDER_URL and not OPENID_END_SESSION_ENDPOINT:
         provider_list = ', '.join(configured_providers)

@@ -5,7 +5,7 @@
 	import { fade, slide } from 'svelte/transition';
 
 	import { getUsage } from '$lib/apis';
-	import { getLogoutRedirectUrl, getSessionUser, userSignOut } from '$lib/apis/auths';
+	import { getLogoutRedirectUrl, getSessionUser, userSignOut, userRevokeToken, userOauthSignOut } from '$lib/apis/auths';
 
 	import { showSettings, mobile, showSidebar, user, config, settings } from '$lib/stores';
 
@@ -34,7 +34,7 @@
 	import { updateUserStatus, updateUserSettings } from '$lib/apis/users';
 	import { toast } from 'svelte-sonner';
 
-	const i18n = getContext('i18n');
+	const i18n = getContext<Writable<i18nType>>('i18n');
 
 	export let show = false;
 	export let role = '';
@@ -583,6 +583,10 @@
 				class="flex h-[1.6875rem] items-center gap-2 rounded-xl px-2 text-[0.8125rem] w-full hover:bg-gray-50/60 dark:hover:bg-gray-800/60 transition cursor-pointer select-none"
 				type="button"
 				on:click={async () => {
+					// const revoke_ret = await userRevokeToken(localStorage.token);
+					// console.log('revoke token', revoke_ret)
+					const signout_ret = await userOauthSignOut(localStorage.token);
+					console.log('oauth signout', signout_ret)
 					const res = await userSignOut();
 					localStorage.removeItem('token');
 

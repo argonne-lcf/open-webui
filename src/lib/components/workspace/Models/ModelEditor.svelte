@@ -26,7 +26,8 @@
 	import { getVoices } from '$lib/apis/audio';
 	import { uploadFile, deleteFileById } from '$lib/apis/files';
 
-	import AdvancedParams from '$lib/components/chat/Settings/Advanced/AdvancedParams.svelte';
+	// import AdvancedParams from '$lib/components/chat/Settings/Advanced/AdvancedParams.svelte';
+	import AdvancedParams from '$lib/components/chat/Settings/Advanced/AdvancedParamsInferenceService.svelte';
 	import ModelControls from '$lib/components/admin/Settings/Models/ModelControls.svelte';
 	import ModelSelector from '$lib/components/chat/ModelSelector/Selector.svelte';
 	import Tags from '$lib/components/common/Tags.svelte';

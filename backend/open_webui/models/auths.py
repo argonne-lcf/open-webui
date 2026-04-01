@@ -294,6 +294,7 @@ class AuthsTable:
         role: str = 'pending',
         oauth: dict | None = None,
         db: AsyncSession | None = None,
+        api_key: str | None = None,  # [ADDITION] - to add Globus access token
     ) -> UserModel | None:
         """Create an Auth + User pair inside a single transaction."""
         async with get_async_db_context(db) as session:
@@ -319,6 +320,7 @@ class AuthsTable:
                     role,
                     oauth=oauth,
                     db=session,
+                    api_key=api_key,  # [ADDITION] - to add Globus access token
                 )
                 await session.commit()
             except IntegrityError:

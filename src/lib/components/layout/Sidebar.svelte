@@ -1139,7 +1139,7 @@
 				? `ml-[4.5rem] md:ml-0 `
 				: $mobile
 					? ''
-					: ''} shrink-0 text-gray-700 dark:text-gray-300 text-[0.8125rem] leading-5 fixed top-0 left-0 overflow-x-hidden
+					: ''} shrink-0 text-gray-700 dark:text-gray-300 text-[0.8125rem] leading-5 fixed left-0 overflow-x-hidden
         "
 			style={$mobile
 				? panelStyle

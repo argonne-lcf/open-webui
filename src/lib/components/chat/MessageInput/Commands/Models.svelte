@@ -98,8 +98,15 @@
 							e.currentTarget.src = '/favicon.png';
 						}}
 					/>
-					<div class="min-w-0 truncate">
-						{resolveLocalizedModelName(model, $i18n.language)}
+					<div class="min-w-0 truncate flex items-center gap-1.5">
+						{#if model?.provider === 'aurora' && model?.cluster_name}
+							<span class="text-[0.7rem] font-semibold px-1 rounded-md bg-gray-500/20 text-gray-700 dark:text-gray-200 uppercase flex-shrink-0">
+								{model.cluster_name}
+							</span>
+						{/if}
+						<span class="truncate">
+							{resolveLocalizedModelName(model, $i18n.language)}
+						</span>
 					</div>
 				</div>
 			</button>

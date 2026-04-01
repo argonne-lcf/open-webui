@@ -11,6 +11,9 @@ from ssl import CERT_NONE, CERT_REQUIRED, PROTOCOL_TLS
 
 import jwt
 from aiohttp import BasicAuth, ClientSession
+# [ADDITION BEGINS] - to add timeout during Globus logout
+from aiohttp import ClientTimeout
+# [ADDITION ENDS]
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse, Response
 from ldap3 import NONE, Connection, Server, Tls
@@ -22,6 +25,7 @@ from open_webui.config import (
 )
 from open_webui.constants import ERROR_MESSAGES
 from open_webui.env import (
+    AIOHTTP_CLIENT_TIMEOUT,  # [ADDITION] - ALCF fork
     AIOHTTP_CLIENT_SESSION_SSL,
     ENABLE_INITIAL_ADMIN_SIGNUP,
     ENABLE_OAUTH_TOKEN_EXCHANGE,
@@ -902,6 +906,25 @@ async def signup(
 
 @router.post('/signout')
 async def signout(request: Request, response: Response, db: AsyncSession = Depends(get_async_session)):
+    # [ADDITION BEGINS] - redirect browser to Globus logout
+    timeout = ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT)
+    try:
+        async with ClientSession(timeout=timeout, trust_env=True) as globus_session:
+            async with globus_session.get(
+                'https://auth.globus.org/v2/web/logout',
+                ssl=AIOHTTP_CLIENT_SESSION_SSL,
+            ) as resp:
+                if resp.ok:
+                    ret = await resp.text()
+                    log.debug(f"logout {ret}")
+                else:
+                    log.warning(f"logout error: {resp.status}")
+
+    except Exception as e:
+        # Handle connection error here
+        log.error(f"logout connection error: {e}")
+    # [ADDITION ENDS]
+
     # get auth token from headers or cookies
     token = None
     auth_header = request.headers.get('Authorization')
@@ -939,7 +962,14 @@ async def signout(request: Request, response: Response, db: AsyncSession = Depen
     response.delete_cookie('oui-session')
     response.delete_cookie('oauth_id_token')
 
-    if oauth_session_id:
+    # [ADDITION BEGINS] - added an "if globus" block to skip webui original logout
+    # Full logout from Globus needs to be done by visiting https://app.globus.org/logout
+    if request.cookies.get("oauth_provider") == "globus":
+        response.delete_cookie("oauth_provider")
+        if oauth_session_id:
+            response.delete_cookie('oauth_session_id')
+    # [ADDITION ENDS]
+    elif oauth_session_id:
         response.delete_cookie('oauth_session_id')
 
         # If a custom end_session_endpoint is configured (e.g. AWS Cognito), redirect

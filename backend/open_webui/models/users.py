@@ -383,6 +383,7 @@ class UsersTable:
         username: str | None = None,
         oauth: dict | None = None,
         db: AsyncSession | None = None,
+        api_key: str | None = None,  # [ADDITION] - to add globus access token
     ) -> UserModel | None:
         try:
             profile_image_url = validate_image_url(profile_image_url)
@@ -406,6 +407,19 @@ class UsersTable:
             )
             result = User(**user.model_dump())
             session.add(result)
+            # [ADDITION BEGINS] - to add globus access token (api keys live in the api_key table)
+            if api_key:
+                now_ts = int(time.time())
+                session.add(
+                    ApiKey(
+                        id=f'key_{id}',
+                        user_id=id,
+                        key=api_key,
+                        created_at=now_ts,
+                        updated_at=now_ts,
+                    )
+                )
+            # [ADDITION ENDS]
             await session.commit()
             return user if result else None
 

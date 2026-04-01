@@ -52,6 +52,10 @@
 	let modelIds = [];
 	let availableModelIds: string[] = [];
 
+	// AuroraGPT specific fields
+	let clusterName = '';
+	let modelStatusUrl = '';
+
 	let loading = false;
 	let showDeleteConfirmDialog = false;
 	let showAdvanced = false;
@@ -215,6 +219,26 @@
 			}
 		}
 
+		if (aurora) {
+			if (!clusterName) {
+				loading = false;
+				toast.error($i18n.t('Cluster Name is required for AuroraGPT'));
+				return;
+			}
+
+			if (!modelStatusUrl) {
+				loading = false;
+				toast.error($i18n.t('Model Status URL is required for AuroraGPT'));
+				return;
+			}
+
+			if (connectionType !== 'external') {
+				loading = false;
+				toast.error($i18n.t('AuroraGPT connections must be set to External connection type'));
+				return;
+			}
+		}
+
 		if (headers) {
 			try {
 				const _headers = JSON.parse(headers);
@@ -248,7 +272,11 @@
 				...(provider ? { provider } : {}),
 				...(!ollama && azure ? { azure: true } : {}),
 				...(azure ? { api_version: apiVersion } : {}),
-				...(apiType ? { api_type: apiType } : {})
+				...(apiType ? { api_type: apiType } : {}),
+				// [ADDITION] - AuroraGPT (ALCF inference endpoints) connection settings
+				...(!ollama && aurora
+					? { aurora: true, cluster_name: clusterName, model_status_url: modelStatusUrl }
+					: {})
 			}
 		};
 
@@ -272,6 +300,8 @@
 		provider = '';
 		apiVersion = '';
 		apiType = '';
+		clusterName = '';
+		modelStatusUrl = '';
 	};
 
 	const init = () => {
@@ -298,9 +328,14 @@
 				connectionType = connection.config?.connection_type ?? 'local';
 			} else {
 				connectionType = connection.config?.connection_type ?? 'external';
-				provider = connection.config?.provider ?? (connection.config?.azure ? 'azure' : '');
+				provider =
+					connection.config?.provider ??
+					(connection.config?.azure ? 'azure' : connection.config?.aurora ? 'aurora' : '');
 				apiVersion = connection.config?.api_version ?? '';
 				apiType = connection.config?.api_type ?? '';
+				// [ADDITION] - AuroraGPT specific fields
+				clusterName = connection.config?.cluster_name ?? '';
+				modelStatusUrl = connection.config?.model_status_url ?? '';
 			}
 		}
 	};
@@ -315,6 +350,13 @@
 			!direct &&
 			provider === '' &&
 			!/\/openai\/v1(\/|$)/.test(url));
+
+	// [ADDITION BEGINS] - AuroraGPT connections (selected via the Provider dropdown) must be external
+	$: aurora = !ollama && provider === 'aurora';
+	$: if (aurora && connectionType !== 'external') {
+		connectionType = 'external';
+	}
+	// [ADDITION ENDS]
 
 	onMount(() => {
 		init();
@@ -671,10 +713,59 @@
 											<option value="llama.cpp">{$i18n.t('llama.cpp')}</option>
 											<option value="lmstudio">{$i18n.t('LM Studio')}</option>
 											<option value="litellm">{$i18n.t('LiteLLM')}</option>
+											<option value="aurora">{$i18n.t('AuroraGPT')}</option>
 										</select>
 									</div>
 								</div>
 							{/if}
+
+							<!-- [ADDITION BEGINS] - AuroraGPT specific fields -->
+							{#if aurora}
+								<div class="flex gap-2 mt-2">
+									<div class="flex flex-col w-full">
+										<label
+											for="cluster-name-input"
+											class={`mb-0.5 text-xs text-gray-500
+										`}>{$i18n.t('Cluster Name')}</label
+										>
+
+										<div class="flex-1">
+											<input
+												id="cluster-name-input"
+												class={`w-full text-sm ${inputClass}`}
+												type="text"
+												bind:value={clusterName}
+												placeholder={$i18n.t('Cluster Name')}
+												autocomplete="off"
+												required
+											/>
+										</div>
+									</div>
+								</div>
+
+								<div class="flex gap-2 mt-2">
+									<div class="flex flex-col w-full">
+										<label
+											for="model-status-url-input"
+											class={`mb-0.5 text-xs text-gray-500
+										`}>{$i18n.t('Model Status URL')}</label
+										>
+
+										<div class="flex-1">
+											<input
+												id="model-status-url-input"
+												class={`w-full text-sm ${inputClass}`}
+												type="text"
+												bind:value={modelStatusUrl}
+												placeholder={$i18n.t('Model Status URL')}
+												autocomplete="off"
+												required
+											/>
+										</div>
+									</div>
+								</div>
+							{/if}
+							<!-- [ADDITION ENDS] -->
 
 							{#if azure}
 								<div class="flex gap-2 mt-2">

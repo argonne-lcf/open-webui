@@ -8,6 +8,7 @@ import sys
 import urllib
 import uuid
 from dataclasses import dataclass, field
+from urllib.parse import quote  # [ADDITION] - ALCF fork
 from datetime import datetime, timedelta
 from functools import partialmethod
 from types import SimpleNamespace
@@ -17,7 +18,8 @@ import aiohttp
 import jwt
 from authlib.integrations.starlette_client import OAuth
 from authlib.oauth2.rfc6749.errors import OAuth2Error
-from authlib.oidc.core import UserInfo
+from authlib.jose.errors import InvalidClaimError  # [ADDITION] - ALCF fork
+from authlib.oidc.core import UserInfo, CodeIDToken  # [MODIFICATION] - ALCF fork
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import (
     HTTPException,
@@ -63,6 +65,8 @@ from open_webui.config import (
     OAUTH_UPDATE_PICTURE_ON_LOGIN,
     OAUTH_USERNAME_CLAIM,
     WEBHOOK_URL,
+    GLOBUS_INFERENCE_SERVICE_SCOPE,  # [ADDITION] - ALCF fork
+    GLOBUS_HIGH_ASSURANCE_POLICY,  # [ADDITION] - ALCF fork
 )
 from open_webui.constants import ERROR_MESSAGES
 from open_webui.env import (
@@ -94,6 +98,10 @@ from open_webui.utils.groups import apply_default_group_assignment
 from open_webui.utils.misc import parse_duration
 from open_webui.utils.validate import validate_image_url
 from starlette.responses import RedirectResponse
+
+# [ADDITION BEGINS] - adding authorization check for the Globus token
+from open_webui.utils.inference_auth_check import validate_user_access_token
+# [ADDITION ENDS]
 
 # Some IdPs put private params in ID token JOSE headers (CAS: client_id, CyberArk: app_id).
 # Authlib exposes no way to pass a registry, so relax it globally; crit, alg and signature checks still apply.
@@ -296,6 +304,25 @@ try:
 except Exception as e:
     log.error(f'Error initializing Fernet with provided key: {e}')
     raise
+
+
+class ORCIDHandledToken(CodeIDToken):
+    def validate_amr(self):
+        """OPTIONAL. Authentication Methods References. JSON array of strings
+        that are identifiers for authentication methods used in the
+        authentication. For instance, values might indicate that both password
+        and OTP authentication methods were used. The definition of particular
+        values to be used in the amr Claim is beyond the scope of this
+        specification. Parties using this claim will need to agree upon the
+        meanings of the values used, which may be context-specific. The amr
+        value is an array of case sensitive strings. However, ORCID sends
+        just a string back and this causes a validation error. This patched
+        version fixes it.
+        """
+        amr = self.get("amr")
+        if amr and not isinstance(self["amr"], list | str):
+            claim_error = "amr"
+            raise InvalidClaimError(claim_error)
 
 
 def encrypt_data(data) -> str:
@@ -1926,6 +1953,11 @@ class OAuthManager:
         if OAUTH_AUTHORIZE_PARAMS:
             kwargs.update(OAUTH_AUTHORIZE_PARAMS)
 
+        # [ADDITION BEGINS] Add extra parameters for Globus to include the policy
+        if provider == "globus" and GLOBUS_HIGH_ASSURANCE_POLICY:
+            kwargs["session_required_policies"] = GLOBUS_HIGH_ASSURANCE_POLICY
+        # [ADDITION ENDS]
+
         return await client.authorize_redirect(request, redirect_uri, **kwargs)
 
     async def handle_callback(self, request, provider, response, db=None):
@@ -1936,6 +1968,7 @@ class OAuthManager:
             raise HTTPException(404)
 
         error_message = None
+        globus_user_access_token = None
         try:
             client = self.get_client(provider)
 
@@ -1977,6 +2010,36 @@ class OAuthManager:
                     exc_info=True,
                 )
                 raise HTTPException(400, detail=ERROR_MESSAGES.OAUTH_LOGIN_FAILED)
+
+            # [ADDITION BEGINS]
+            # Try to extract the access token issued by the WebUI Globus confidential client
+            # You need to select the access token tied to the inference service's scope
+            # Otherwise the Inference API confidential client won't have the permission to introspect the token
+            #token = await client.authorize_access_token(request, claims_cls=ORCIDHandledToken) # OLDER TOKEN LINE
+            if provider == "globus":
+                log.debug(f"token {token}")
+                try:
+                    user_other_tokens = token["other_tokens"]
+                    for other_token in user_other_tokens:
+                        if other_token["scope"] == GLOBUS_INFERENCE_SERVICE_SCOPE:
+                            globus_user_access_token = other_token["access_token"]
+                except:
+                    globus_user_access_token = None
+
+                # [ADDITION - IMPORTANT] - Authorization layer
+                # Make a request to the Inference Gateway API to see if user is authorized, and deny access if necessary
+                try:
+                    is_authorized, whoami_data, error_message = await validate_user_access_token(globus_user_access_token)
+                except Exception as e:
+                    log.warning(f"Globus authorization check failed: {e}", exc_info=True)
+                    raise HTTPException(400, detail=ERROR_MESSAGES.OAUTH_LOGIN_FAILED)
+                if not is_authorized:
+                    log.error(f"Unauthorized: {error_message}")
+                    webui_url = await Config.get('webui.url')
+                    unauthorized_base_url = (str(webui_url or request.base_url)).rstrip('/')
+                    unauthorized_url = f'{unauthorized_base_url}/unauthorized?error={quote(error_message)}'
+                    return RedirectResponse(url=unauthorized_url, headers=response.headers)
+            # [ADDITION ENDS]
 
             # Try to get userinfo from the token first, some providers include it there
             user_data: UserInfo = token.get('userinfo')
@@ -2092,6 +2155,11 @@ class OAuthManager:
                     db=db,
                 )
 
+                # [ADDITION BEGINS] - Update the API key (new Globus access token from the latest authentication)
+                if provider == "globus" and globus_user_access_token:
+                    await Users.update_user_api_key_by_id(user.id, globus_user_access_token, db=db)
+                # [ADDITION ENDS]
+
                 updated_fields = []
 
                 if auth_config.OAUTH_UPDATE_NAME_ON_LOGIN:
@@ -2181,6 +2249,8 @@ class OAuthManager:
                         role=await self.get_user_role(None, user_data),
                         oauth=oauth_data,
                         db=db,
+                        # [ADDITION] - store the Globus token as the user's API key
+                        api_key=globus_user_access_token if provider == "globus" else None,
                     )
 
                     if not user:
@@ -2299,6 +2369,14 @@ class OAuthManager:
                 samesite=WEBUI_AUTH_COOKIE_SAME_SITE,
                 secure=WEBUI_AUTH_COOKIE_SECURE,
                 **({'max_age': cookie_max_age} if cookie_max_age is not None else {}),
+            )
+            # [ADDITION] - ALCF fork: remember the provider for the logout flow
+            response.set_cookie(
+                key="oauth_provider",
+                value=provider,
+                httponly=True,  # Ensures the cookie is not accessible via JavaScript
+                samesite=WEBUI_AUTH_COOKIE_SAME_SITE,
+                secure=WEBUI_AUTH_COOKIE_SECURE,
             )
             if session:
                 response.set_cookie(

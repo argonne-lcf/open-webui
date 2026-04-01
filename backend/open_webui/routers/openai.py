@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import re
+import time
 from typing import Optional
 from urllib.parse import quote, urlparse
 
@@ -19,6 +21,7 @@ from fastapi.responses import (
 )
 from open_webui.config import (
     CACHE_DIR,
+    ALCF_LIST_ENDPOINTS_URL,  # [ADDITION] - ALCF fork
 )
 from open_webui.constants import ERROR_MESSAGES
 from open_webui.env import (
@@ -37,6 +40,7 @@ from open_webui.models.config import Config
 from open_webui.models.groups import Groups
 from open_webui.models.models import Models
 from open_webui.models.users import UserModel
+from open_webui.models.users import Users  # [ADDITION] - to get user's API key (the Globus access token)
 from open_webui.utils.access_control import check_model_access, has_connection_access, has_permission
 from open_webui.utils.anthropic import ANTHROPIC_VERSION, get_anthropic_models, is_anthropic_url
 from open_webui.utils.auth import get_admin_user, get_verified_user
@@ -110,7 +114,19 @@ async def send_get_request(
                 cookies=cookies,
                 ssl=AIOHTTP_CLIENT_SESSION_SSL,
             ) as response:
-                return await response.json(loads=JSONCodec.loads)
+                # [MODIFICATION BEGINS] - ALCF fork: ignore non-OK responses, tolerate non-JSON content types
+                if response.ok:
+                    try:
+                        ret = await response.json(loads=JSONCodec.loads)
+                    except Exception as e:
+                        ret = await response.text()
+                        ret = json.loads(ret)
+
+                    return ret
+                else:
+                    log.warning(f"request error: {url} user={user.id if user else None} {response.status}")
+                    return None
+                # [MODIFICATION ENDS]
     except Exception as e:
         # Handle connection error here
         log.error(f'Connection error: {e}')
@@ -150,6 +166,187 @@ def openai_reasoning_model_handler(payload):
     return payload
 
 
+# [ADDITION BEGINS]
+def _parse_list_endpoints_models(data: dict, cluster: str) -> set:
+    """
+    Parse ALCF list-endpoints API response and return set of model IDs for the given cluster.
+    Response shape: {"clusters": {"sophia": {"frameworks": {"vllm": {"models": [...]}}, ...}}}
+    """
+    cluster_key = cluster.lower()
+    clusters = data.get("clusters") or {}
+    cluster_info = clusters.get(cluster_key, {})
+    frameworks = cluster_info.get("frameworks") or {}
+    models_set = set()
+    for framework_data in frameworks.values():
+        if isinstance(framework_data, dict) and "models" in framework_data:
+            models_set.update(m for m in framework_data["models"] if m)
+    return models_set
+
+
+async def get_allowed_model_ids(
+    connection_model_ids: list,
+    list_endpoints_url: str,
+    cluster: str,
+    key: str = None,
+) -> list:
+    """
+    Return model IDs that are in both the WebUI connection config and the ALCF list-endpoints
+    response for the given cluster. Queries list_endpoints_url with optional bearer token.
+
+    Args:
+        connection_model_ids: Model IDs configured in the WebUI connection.
+        list_endpoints_url: ALCF list-endpoints URL (e.g. ALCF_LIST_ENDPOINTS_URL).
+        cluster: Cluster name (e.g. "sophia", "metis") to read from the response.
+        key: Optional bearer token for the request.
+
+    Returns:
+        List of model IDs present in both connection config and list-endpoints (order preserved
+        from connection_model_ids). Empty list on fetch/parse error.
+    """
+    if not connection_model_ids or not list_endpoints_url:
+        return list(connection_model_ids) if connection_model_ids else []
+
+    timeout = aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT_MODEL_LIST)
+    try:
+        async with aiohttp.ClientSession(
+            trust_env=True, timeout=timeout
+        ) as session:
+            async with session.get(
+                list_endpoints_url,
+                headers=(
+                    {"Authorization": f"Bearer {key}"} if key else {}
+                ),
+                ssl=AIOHTTP_CLIENT_SESSION_SSL,
+            ) as response:
+                if not response.ok:
+                    log.warning(
+                        f"list_endpoints request error: {response.status} {list_endpoints_url}"
+                    )
+                    if response.status == 401:
+                        raise HTTPException(
+                            status_code=401,
+                            detail="list_endpoints_unauthorized",
+                        )
+                    return []
+                data = json.loads(await response.text())
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.warning(f"list_endpoints fetch error: {e}")
+        return []
+
+    endpoint_models = _parse_list_endpoints_models(data, cluster)
+    # Preserve order of connection_model_ids
+    return [m for m in connection_model_ids if m in endpoint_models]
+# [ADDITION ENDS]
+
+# [ADDITION BEGINS]
+class AGPTModelStatus:
+    def __init__(self, ttl=0):
+        self.session = None
+        self.live_models = {}
+        self.starting_models = {}
+        self.queued_models = {}
+        self.last_update = {}
+        self.ttl = ttl
+        self._task = {}
+
+    def _get_key_hash(self, key: str) -> str:
+        """Hash the API key for secure cache key generation"""
+        if not key:
+            return "anonymous"
+        return hashlib.sha256(key.encode()).hexdigest()
+
+    async def fetch(self, cluster: str, url, key=None, user: UserModel = None, timeout=None):
+        _cluster = cluster.lower()
+       
+        # Create user-specific cache key using hashed API key
+        key_hash = self._get_key_hash(key)
+        cache_key = f"{key_hash}_{_cluster}"
+        
+        if self.session is None:
+            self.session = aiohttp.ClientSession(
+                trust_env=True,
+                timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT_MODEL_LIST)
+            )
+
+        if cache_key in self.last_update:
+            if time.time() - self.last_update[cache_key] <= self.ttl:
+                log.debug(f"skip jobs query due to TTL for key {key_hash}")
+                return True
+
+        if cache_key in self._task:
+            if not self._task[cache_key].done():
+                log.debug(f"query pending for key {key_hash}")
+                return True
+
+        async def do_fetch(self, url, key=None):
+            try:
+                async with self.session.get(
+                    url,
+                    headers={
+                        **({"Authorization": f"Bearer {key}"} if key else {}),
+                        },
+                    ssl=AIOHTTP_CLIENT_SESSION_SSL
+                ) as response:
+                    if response.ok:
+                        status_ret = json.loads(await response.text())
+                        log.debug(f"AGPTModelStatus: model_status {status_ret}")
+                        live_models = []
+                        starting_models = []
+                        queued_models = []
+
+                        for model in status_ret["running"]:
+                            if model["Model Status"] == "running":
+                                live_models.extend(model["Models"].split(","))
+                            elif model["Model Status"] == "starting":
+                                starting_models.extend(model["Models"].split(","))
+                        for model in status_ret["queued"]:
+                            queued_models.extend(model["Models"].split(","))
+
+                        self.live_models[cache_key] = live_models
+                        self.starting_models[cache_key] = starting_models
+                        self.queued_models[cache_key] = queued_models
+                        self.last_update[cache_key] = time.time()
+                        log.debug(f"model_status_tracker:update {cache_key} live_models() {self.live_models[cache_key]}")
+                        log.debug(f"model_status_tracker:update {cache_key} starting_models() {self.starting_models[cache_key]}")
+                        log.debug(f"model_status_tracker:update {cache_key} queue_models() {self.queued_models[cache_key]}")
+                        return True
+                    else:
+                        log.warning(f"agpt_fetch_model_status request error: {response.status} {url} key={key} user={user}")
+                        return False
+            except Exception as e:
+                log.warning(f"connection error: {e}")
+                return False
+
+        self._task[cache_key] = asyncio.create_task(do_fetch(self, url, key))
+
+        try:
+            return await asyncio.wait_for(self._task[cache_key], timeout=timeout)
+        except asyncio.TimeoutError:
+            log.debug(f"fetch returning, but still fetching {url}")
+            return True
+
+    def is_live(self, cluster: str, model_id, key=None):
+        _cluster = cluster.lower()
+        key_hash = self._get_key_hash(key)
+        cache_key = f"{key_hash}_{_cluster}"
+        return model_id in self.live_models[cache_key] if cache_key in self.live_models else False
+
+    def is_starting(self, cluster: str, model_id, key=None):
+        _cluster = cluster.lower()
+        key_hash = self._get_key_hash(key)
+        cache_key = f"{key_hash}_{_cluster}"
+        return model_id in self.starting_models[cache_key] if cache_key in self.starting_models else False
+
+    def is_queued(self, cluster: str, model_id, key=None):
+        _cluster = cluster.lower()
+        key_hash = self._get_key_hash(key)
+        cache_key = f"{key_hash}_{_cluster}"
+        return model_id in self.queued_models[cache_key] if cache_key in self.queued_models else False
+# [ADDITION ENDS]
+
+
 ##########################################
 #
 # API routes
@@ -157,6 +354,7 @@ def openai_reasoning_model_handler(payload):
 ##########################################
 
 router = APIRouter()
+model_status_tracker = AGPTModelStatus(ttl=1)  # [ADDITION] - ALCF fork
 
 LLAMACPP_LOADED_STATES = {'loaded', 'sleeping'}
 LLAMACPP_UNLOADED_STATES = {'loading', 'unloaded'}
@@ -591,6 +789,8 @@ async def speech(request: Request, user=Depends(get_verified_user)):
 
 
 async def get_all_models_responses(request: Request, user: UserModel) -> list:
+    global model_status_tracker
+
     enable_openai_api, api_base_urls, api_keys, api_configs = await get_openai_runtime_config()
     if not enable_openai_api:
         return []
@@ -601,7 +801,12 @@ async def get_all_models_responses(request: Request, user: UserModel) -> list:
     if num_keys != num_urls:
         api_keys = await normalize_openai_api_keys(api_base_urls, api_keys)
 
+    # [ADDITION BEGINS] - Recover user's API key (the Globus access token)
+    user_api_key = await Users.get_user_api_key_by_id(user.id) if user else None
+    # [ADDITION ENDS]
+
     request_tasks = []
+    model_status_tasks = []
     for idx, url in enumerate(api_base_urls):
         if (str(idx) not in api_configs) and (url not in api_configs):  # Legacy support
             request_tasks.append(get_models_request(request, url, api_keys[idx], user=user))
@@ -613,9 +818,54 @@ async def get_all_models_responses(request: Request, user: UserModel) -> list:
 
             enable = api_config.get('enable', True)
             model_ids = api_config.get('model_ids', [])
+            is_aurora = api_config.get("aurora", False)
+
+            # [ADDITION BEGINS]
+            # Filter models IDs based on the user's API key
+            # This will remove models that the user is not allowed to see
+            model_ids = await get_allowed_model_ids(
+                model_ids,
+                ALCF_LIST_ENDPOINTS_URL,
+                api_config.get("cluster_name", ""),
+                user_api_key
+            )
+            # [ADDITION ENDS]
 
             if enable:
-                if len(model_ids) == 0:
+                # [ADDITION BEGINS] - ALCF inference endpoints: build model list from allowed ids + track model status
+                if is_aurora:
+                    if len(model_ids) > 0:
+                        log.debug(f"process {api_config}")
+                        model_list = {
+                            "object": "list",
+                            "data": [
+                                {
+                                    "id": model_id,
+                                    "name": model_id,
+                                    "owned_by": "openai",
+                                    "provider": "aurora",
+                                    "cluster_name": api_config.get("cluster_name", ""),
+                                    "openai": {"id": model_id},
+                                    "urlIdx": idx,
+                                }
+                                for model_id in model_ids
+                            ],
+                        }
+                        request_tasks.append(
+                            asyncio.ensure_future(asyncio.sleep(0, model_list))
+                        )
+                        model_status_tasks.append(model_status_tracker.fetch(
+                            api_config.get("cluster_name", ""),
+                            api_config.get("model_status_url", None),
+                            user_api_key,
+                            user=user,
+                            timeout=5
+                        ))
+                    else:
+                        request_tasks.append(asyncio.ensure_future(asyncio.sleep(0, None)))
+                        model_status_tasks.append(asyncio.ensure_future(asyncio.sleep(0, None)))
+                # [ADDITION ENDS]
+                elif len(model_ids) == 0:
                     request_tasks.append(get_models_request(request, url, api_keys[idx], user=user, config=api_config))
                 else:
                     model_list = {
@@ -637,6 +887,7 @@ async def get_all_models_responses(request: Request, user: UserModel) -> list:
                 request_tasks.append(asyncio.ensure_future(asyncio.sleep(0, None)))
 
     responses = await asyncio.gather(*request_tasks)
+    await asyncio.gather(*model_status_tasks)
 
     for idx, response in enumerate(responses):
         if response:
@@ -660,6 +911,18 @@ async def get_all_models_responses(request: Request, user: UserModel) -> list:
                 # Remove name key if its value is None #16689
                 if 'name' in model and model['name'] is None:
                     del model['name']
+
+                # [ADDITION BEGINS] - Now passing the key argument to the model_status_tracker methods
+                if "cluster_name" in model:
+                    if model_status_tracker.is_live(model["cluster_name"], model["id"], key=user_api_key if user else None):
+                        model["status"] = "live"
+                    elif model_status_tracker.is_starting(model["cluster_name"], model["id"], key=user_api_key if user else None):
+                        model["status"] = "starting"
+                    elif model_status_tracker.is_queued(model["cluster_name"], model["id"], key=user_api_key if user else None):
+                        model["status"] = "queued"
+                    else:
+                        model["status"] = "offline"
+                # [ADDITION ENDS]
 
                 if prefix_id:
                     model['id'] = f'{prefix_id}.{model.get("id", model.get("name", ""))}'
@@ -795,64 +1058,68 @@ async def get_models(request: Request, url_idx: int | None = None, user=Depends(
 
     if url_idx is None:
         models = await get_all_models(request, user=user)
-    else:
-        url, key, api_config = await get_openai_connection(url_idx)
+    # [MODIFICATION BEGINS] - ALCF fork: per-connection model listing disabled so private models are never
+    # fetched directly from the endpoint (only the filtered list from get_all_models is exposed)
+    # else:
+    #     url, key, api_config = await get_openai_connection(url_idx)
+    #
+    #     r = None
+    #     async with aiohttp.ClientSession(
+    #         trust_env=True,
+    #         timeout=_MODEL_LIST_TIMEOUT,
+    #     ) as session:
+    #         try:
+    #             headers, cookies = await get_headers_and_cookies(request, url, key, api_config, user=user)
+    #
+    #             if api_config.get('azure') or api_config.get('provider') == 'azure':
+    #                 models = {
+    #                     'data': api_config.get('model_ids', []) or [],
+    #                     'object': 'list',
+    #                 }
+    #             elif is_anthropic_url(url):
+    #                 models = await get_anthropic_models(url, key, user=user)
+    #                 if models is None:
+    #                     raise Exception('Failed to connect to Anthropic API')
+    #             else:
+    #                 async with session.get(
+    #                     f'{url}/models',
+    #                     headers=headers,
+    #                     cookies=cookies,
+    #                     ssl=AIOHTTP_CLIENT_SESSION_SSL,
+    #                 ) as r:
+    #                     if r.status != 200:
+    #                         error_detail = f'HTTP Error: {r.status}'
+    #                         try:
+    #                             res = await r.json(loads=JSONCodec.loads)
+    #                             if 'error' in res:
+    #                                 error_detail = f'External Error: {res["error"]}'
+    #                         except Exception:
+    #                             pass
+    #                         raise Exception(error_detail)
+    #
+    #                     response_data = await r.json(loads=JSONCodec.loads)
+    #
+    #                     if 'api.openai.com' in url:
+    #                         response_data['data'] = [
+    #                             model
+    #                             for model in response_data.get('data', [])
+    #                             if not any(name in model['id'] for name in _UNSUPPORTED_OPENAI_MODEL_KEYWORDS)
+    #                         ]
+    #
+    #                     models = response_data
+    #         except aiohttp.ClientError as e:
+    #             # ClientError covers all aiohttp requests issues
+    #             log.exception(f'Client error: {str(e)}')
+    #             # LICENSE covers this Open WebUI error identifier.
+    #             # Do not alter, remove, obscure, or replace it except as LICENSE permits:
+    #             # https://docs.openwebui.com/license.
+    #             raise HTTPException(status_code=500, detail='Open WebUI: Server Connection Error')
+    #         except Exception as e:
+    #             log.exception(f'Unexpected error: {e}')
+    #             error_detail = f'Unexpected error: {str(e)}'
+    #             raise HTTPException(status_code=500, detail=error_detail)
 
-        r = None
-        async with aiohttp.ClientSession(
-            trust_env=True,
-            timeout=_MODEL_LIST_TIMEOUT,
-        ) as session:
-            try:
-                headers, cookies = await get_headers_and_cookies(request, url, key, api_config, user=user)
-
-                if api_config.get('azure') or api_config.get('provider') == 'azure':
-                    models = {
-                        'data': api_config.get('model_ids', []) or [],
-                        'object': 'list',
-                    }
-                elif is_anthropic_url(url):
-                    models = await get_anthropic_models(url, key, user=user)
-                    if models is None:
-                        raise Exception('Failed to connect to Anthropic API')
-                else:
-                    async with session.get(
-                        f'{url}/models',
-                        headers=headers,
-                        cookies=cookies,
-                        ssl=AIOHTTP_CLIENT_SESSION_SSL,
-                    ) as r:
-                        if r.status != 200:
-                            error_detail = f'HTTP Error: {r.status}'
-                            try:
-                                res = await r.json(loads=JSONCodec.loads)
-                                if 'error' in res:
-                                    error_detail = f'External Error: {res["error"]}'
-                            except Exception:
-                                pass
-                            raise Exception(error_detail)
-
-                        response_data = await r.json(loads=JSONCodec.loads)
-
-                        if 'api.openai.com' in url:
-                            response_data['data'] = [
-                                model
-                                for model in response_data.get('data', [])
-                                if not any(name in model['id'] for name in _UNSUPPORTED_OPENAI_MODEL_KEYWORDS)
-                            ]
-
-                        models = response_data
-            except aiohttp.ClientError as e:
-                # ClientError covers all aiohttp requests issues
-                log.exception(f'Client error: {str(e)}')
-                # LICENSE covers this Open WebUI error identifier.
-                # Do not alter, remove, obscure, or replace it except as LICENSE permits:
-                # https://docs.openwebui.com/license.
-                raise HTTPException(status_code=500, detail='Open WebUI: Server Connection Error')
-            except Exception as e:
-                log.exception(f'Unexpected error: {e}')
-                error_detail = f'Unexpected error: {str(e)}'
-                raise HTTPException(status_code=500, detail=error_detail)
+    # [MODIFICATION ENDS]
 
     if user.role == 'user' and not BYPASS_MODEL_ACCESS_CONTROL:
         models['data'] = await get_filtered_models(models, user)
@@ -1478,6 +1745,10 @@ async def generate_chat_completion(
 
     url, key, api_config = await get_openai_connection(idx)
 
+    # [ADDITION BEGINS] - Using the saved per-user api key
+    key = await Users.get_user_api_key_by_id(user.id) if user else None
+    # [ADDITION ENDS]
+
     prefix_id = api_config.get('prefix_id', None)
     payload['model'] = strip_provider_model_prefix(payload['model'], prefix_id)
 
@@ -1673,9 +1944,19 @@ async def generate_chat_completion(
     except Exception as e:
         log.exception(e)
 
+        # [ADDITION BEGINS] - ALCF fork: friendlier errors for expired tokens / models not yet live
+        detail = ERROR_MESSAGES.SERVER_CONNECTION_ERROR
+        error_status = getattr(e, 'status', None)
+        if error_status == 401:
+            detail = "You are either not allowed to access the service or your Globus token has expired. Please sign out and sign in again with an authorized identity provider."
+        elif error_status == 408:
+            if model and "status" in model and model.get("status") != "live":
+                detail = "Message timeout before model becomes live. Please try again with a new chat with this model."
+        # [ADDITION ENDS]
+
         raise HTTPException(
             status_code=r.status if r else 500,
-            detail=ERROR_MESSAGES.SERVER_CONNECTION_ERROR,
+            detail=detail,
         )
     finally:
         if not streaming:
@@ -1708,6 +1989,10 @@ async def embeddings(request: Request, form_data: dict, user):
         idx = models[model_id]['urlIdx']
 
     url, key, api_config = await get_openai_connection(idx)
+
+    # [ADDITION BEGINS] - Using the saved per-user api key
+    key = await Users.get_user_api_key_by_id(user.id) if user else None
+    # [ADDITION ENDS]
 
     r = None
     streaming = False
@@ -1839,6 +2124,10 @@ async def responses(
 
     url, key, api_config = await get_openai_connection(idx)
 
+    # [ADDITION BEGINS] - Using the saved per-user api key
+    key = await Users.get_user_api_key_by_id(user.id) if user else None
+    # [ADDITION ENDS]
+
     payload['model'] = strip_provider_model_prefix(payload['model'], api_config.get('prefix_id'))
     body = JSONCodec.dumps(payload)
 
@@ -1959,6 +2248,10 @@ async def proxy(path: str, request: Request, user=Depends(get_verified_user)):
 
     url, key, api_config = await get_openai_connection(idx)
     base_url = url
+
+    # [ADDITION BEGINS] - Using the saved per-user api key
+    key = await Users.get_user_api_key_by_id(user.id) if user else None
+    # [ADDITION ENDS]
 
     r = None
     streaming = False

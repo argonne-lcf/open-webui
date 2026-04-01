@@ -1,5 +1,18 @@
 <script lang="ts">
+	import { createEventDispatcher, getContext } from 'svelte';
+	import type { Writable } from 'svelte/store';
+	import type { i18n as i18nType } from 'i18next';
+
 	import Info from '$lib/components/icons/Info.svelte';
+
+	// [ADDITION BEGINS] - Clear button to dismiss errors and continue the chat
+	const i18n = getContext<Writable<i18nType>>('i18n');
+	const dispatch = createEventDispatcher();
+
+	const handleClear = () => {
+		dispatch('clear');
+	};
+	// [ADDITION ENDS]
 
 	export let content: unknown = '';
 
@@ -43,6 +56,16 @@
 	<Info className="mt-0.5 size-4 shrink-0 text-gray-400 dark:text-gray-500" strokeWidth="1.8" />
 
 	<div class="min-w-0 break-words text-[0.8125rem] leading-5">
-		{message}
+		<div>
+			{message}
+		</div>
+		<!-- [ADDITION] - Clear button -->
+		<button
+			type="button"
+			class="self-start mt-1 rounded-md border border-red-500/40 bg-transparent px-3 py-1 text-xs font-medium text-red-700 transition hover:bg-red-500/10 dark:text-red-300"
+			on:click={handleClear}
+		>
+			{$i18n.t('Clear')}
+		</button>
 	</div>
 </div>

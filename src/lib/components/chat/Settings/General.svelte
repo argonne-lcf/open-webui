@@ -11,7 +11,8 @@
 
 	const i18n: any = getContext('i18n');
 
-	import AdvancedParams from './Advanced/AdvancedParams.svelte';
+	//import AdvancedParams from './Advanced/AdvancedParams.svelte';
+	import AdvancedParams from './Advanced/AdvancedParamsInferenceService.svelte';
 	import Textarea from '$lib/components/common/Textarea.svelte';
 	import UserSettingField from './UserSettingField.svelte';
 	import UserSettingRow from './UserSettingRow.svelte';
