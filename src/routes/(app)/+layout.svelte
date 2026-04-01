@@ -356,8 +356,8 @@
 	message={$i18n.t(
 		'Your session has expired. Please log out and log in again to continue.'
 	)}
-	cancelLabel={$i18n.t('Dismiss')}
 	confirmLabel={$i18n.t('Log Out')}
+	showCancel={false}
 	onConfirm={handleSessionExpiredLogout}
 />
 <!-- [ADDITION ENDS] -->
