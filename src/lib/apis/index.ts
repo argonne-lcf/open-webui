@@ -26,7 +26,16 @@ export const getModels = async (
 		}
 	)
 		.then(async (res) => {
-			if (!res.ok) throw await res.json();
+			// [MODIFICATION BEGINS]
+			// Original: if (!res.ok) throw await res.json();
+			// This adds res.status to the error object
+			// This allows the frontend to know when the user should be redirected
+			// to the logout URL (when the Globus token expires or loses the session)
+			if (!res.ok) {
+				const body = await res.json();
+				throw { ...body, status: res.status };
+			}
+			// [MODIFICATION ENDS]
 			return res.json();
 		})
 		.catch((err) => {

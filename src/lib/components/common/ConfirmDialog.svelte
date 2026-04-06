@@ -16,6 +16,9 @@
 
 	export let cancelLabel = $i18n.t('Cancel');
 	export let confirmLabel = $i18n.t('Confirm');
+	// [ADDITION BEGINS] - Add cancel button
+	export let showCancel = true;
+	// [ADDITION ENDS]
 
 	export let onConfirm = () => {};
 
@@ -39,7 +42,10 @@
 	};
 
 	const handleKeyDown = (event: KeyboardEvent) => {
-		if (event.key === 'Escape') {
+		// [MODIFICATION BEGINS] - Add cancel button
+		// Oritinal: if (event.key === 'Escape') {
+		if (event.key === 'Escape' && showCancel) {
+		// [MODIFICATION ENDS]
 			console.log('Escape');
 			show = false;
 		}
@@ -98,7 +104,10 @@
 		class=" fixed top-0 right-0 left-0 bottom-0 bg-black/60 w-full h-screen max-h-[100dvh] flex justify-center z-99999999 overflow-hidden overscroll-contain"
 		in:fade={{ duration: 10 }}
 		on:mousedown={() => {
-			show = false;
+			// [MODIFICATION BEGINS] - Add cancel button
+			// Oritinal: if (showCancel) show = false;
+			if (showCancel) show = false;
+			// [MODIFICATION ENDS]
 		}}
 	>
 		<div
@@ -138,18 +147,37 @@
 					</div>
 				</slot>
 
-				<div class="mt-6 flex justify-between gap-1.5">
-					<button
-						class="text-sm bg-gray-100 hover:bg-gray-200 text-gray-800 dark:bg-gray-850 dark:hover:bg-gray-800 dark:text-white font-medium w-full py-2 rounded-3xl transition"
-						on:click={() => {
-							show = false;
-							dispatch('cancel');
-						}}
-						type="button"
-					>
-						{cancelLabel}
-					</button>
-					<button
+			<!-- [MODIFICATION BEGINS] - Add cancel button
+			Original:
+			                               <div class="mt-6 flex justify-between gap-1.5">
+				                                       <button
+				                                               class="text-sm bg-gray-100 hover:bg-gray-200 text-gray-800 
+				dark:bg-gray-850 dark:hover:bg-gray-800 dark:text-white font-medium w-full py-2 rounded-3xl transition"
+				                                               on:click={() => {
+				                                                       show = false;
+				                                                       dispatch('cancel');
+				                                               }}
+				                                               type="button"
+				                                       >
+				                                               {cancelLabel}
+				                                       </button>
+			                                       <button
+			-->
+			<div class="mt-6 flex justify-between gap-1.5">
+				{#if showCancel}
+				<button
+					class="text-sm bg-gray-100 hover:bg-gray-200 text-gray-800 dark:bg-gray-850 dark:hover:bg-gray-800 dark:text-white font-medium w-full py-2 rounded-3xl transition"
+					on:click={() => {
+						show = false;
+						dispatch('cancel');
+					}}
+					type="button"
+				>
+					{cancelLabel}
+				</button>
+				{/if}
+				<!-- [MODIFICATION ENDS] -->
+				<button
 						class="text-sm bg-gray-900 hover:bg-gray-850 text-gray-100 dark:bg-gray-100 dark:hover:bg-white dark:text-gray-800 font-medium w-full py-2 rounded-3xl transition"
 						on:click={() => {
 							confirmHandler();

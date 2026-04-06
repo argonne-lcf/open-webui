@@ -187,8 +187,15 @@ async def get_allowed_model_ids(
                     log.warning(
                         f"list_endpoints request error: {response.status} {list_endpoints_url}"
                     )
+                    if response.status == 401:
+                        raise HTTPException(
+                            status_code=401,
+                            detail="list_endpoints_unauthorized",
+                        )
                     return []
                 data = json.loads(await response.text())
+    except HTTPException:
+        raise
     except Exception as e:
         log.warning(f"list_endpoints fetch error: {e}")
         return []
