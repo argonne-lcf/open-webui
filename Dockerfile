@@ -36,7 +36,10 @@ WORKDIR /app
 RUN apk add --no-cache git
 
 COPY package.json package-lock.json ./
-RUN npm ci --force
+
+# Note: --legacy-peer-deps in ALCF fork is necessary
+# for Docker image to build in CI!
+RUN npm ci --force --legacy-peer-deps
 
 COPY . .
 ENV APP_BUILD_HASH=${BUILD_HASH}
