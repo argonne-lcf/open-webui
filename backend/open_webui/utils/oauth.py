@@ -1956,6 +1956,7 @@ class OAuthManager:
         # [ADDITION BEGINS] Add extra parameters for Globus to include the policy
         if provider == "globus" and GLOBUS_HIGH_ASSURANCE_POLICY:
             kwargs["session_required_policies"] = GLOBUS_HIGH_ASSURANCE_POLICY
+            kwargs["prompt"] = "login"
         # [ADDITION ENDS]
 
         return await client.authorize_redirect(request, redirect_uri, **kwargs)

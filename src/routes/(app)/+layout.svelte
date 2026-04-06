@@ -15,6 +15,13 @@
 	import { getUserSettings } from '$lib/apis/users';
 	import { setAppFontFamily, setTextScale } from '$lib/utils/text-scale';
 
+	// [ADDITION BEGINS]
+	// This is to redirect user to the logout URL
+	// when the Globus token expires or loses the session
+	import { userSignOut } from '$lib/apis/auths';
+	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
+	// [MODIFICATION ENDS]
+
 	import { WEBUI_VERSION, WEBUI_API_BASE_URL, WEBUI_BUILD_CHANNEL } from '$lib/constants';
 	import { compareVersion } from '$lib/utils';
 
@@ -59,6 +66,24 @@
 	let version;
 	let handledSettingsUrl = '';
 
+	// [ADDITION BEGINS] - Logout procedure when Globus token expires
+	let showSessionExpiredModal = false;
+
+	const handleSessionExpiredLogout = async () => {
+		await userSignOut();
+		user.set(undefined);
+		localStorage.removeItem('token');
+
+		const globusClientId = $config?.oauth?.client_ids?.globus;
+		const redirectUri = encodeURIComponent(window.location.origin + '/auth');
+		const globusLogoutUrl = globusClientId
+			? `https://auth.globus.org/v2/web/logout?client_id=${globusClientId}&redirect_uri=${redirectUri}&redirect_name=ALCF+Inference`
+			: 'https://auth.globus.org/v2/web/logout';
+
+		location.href = globusLogoutUrl;
+	};
+	// [ADDITION ENDS]
+
 	const clearChatInputStorage = () => {
 		const chatInputKeys = Object.keys(localStorage).filter((key) => key.startsWith('chat-input'));
 		if (chatInputKeys.length > 0) {
@@ -85,12 +110,32 @@
 	};
 
 	const setModels = async () => {
-		models.set(
-			await getModels(
-				localStorage.token,
-				$config?.features?.enable_direct_connections ? ($settings?.directConnections ?? null) : null
-			)
-		);
+		// [MODIFICATION BEGINS]
+		// Original:
+		//  models.set(
+        //    await getModels(
+        //        localStorage.token,
+        //        $config?.features?.enable_direct_connections ? ($settings?.directConnections ?? null) : null
+        //    )
+        //  );
+		// This adds a check to see if the Globus token has expired or lost the session
+		// and redirects the user to the logout URL if needed
+		try {
+			models.set(
+				await getModels(
+					localStorage.token,
+					$config?.features?.enable_direct_connections
+						? ($settings?.directConnections ?? null)
+						: null
+				)
+			);
+		} catch (err) {
+			if (err?.status === 401 && err?.detail === 'list_endpoints_unauthorized') {
+				console.warn('Globus token expired');
+				showSessionExpiredModal = true;
+			}
+		}
+		// [MODIFICATION ENDS]
 	};
 
 	const setToolServers = async () => {
@@ -466,6 +511,19 @@
 
 <SettingsModal bind:show={$showSettings} />
 <ChangelogModal bind:show={$showChangelog} />
+
+<!-- [ADDITION BEGINS] - Session expired warning box -->
+<ConfirmDialog
+	bind:show={showSessionExpiredModal}
+	title={$i18n.t('Session Expired')}
+	message={$i18n.t(
+		'Your session has expired. Please log out and log in again to continue.'
+	)}
+	confirmLabel={$i18n.t('Log Out')}
+	showCancel={false}
+	onConfirm={handleSessionExpiredLogout}
+/>
+<!-- [ADDITION ENDS] -->
 
 {#if WEBUI_BUILD_CHANNEL === 'main' && version && compareVersion(version.latest, version.current) && ($settings?.showUpdateToast ?? true)}
 	<div class=" absolute bottom-8 right-8 z-50" in:fade={{ duration: 100 }}>

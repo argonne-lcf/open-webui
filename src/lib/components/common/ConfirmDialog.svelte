@@ -20,6 +20,9 @@
 
 	export let cancelLabel: string | undefined = undefined;
 	export let confirmLabel: string | undefined = undefined;
+	// [ADDITION BEGINS] - Add cancel button
+	export let showCancel = true;
+	// [ADDITION ENDS]
 
 	export let onConfirm = () => {};
 
@@ -54,10 +57,14 @@
 	};
 
 	const handleKeyDown = (event: KeyboardEvent) => {
+		// [MODIFICATION BEGINS] - Add cancel button
+		// Original: if (event.key === 'Escape' || (... CLOSE_MODAL)) {
 		if (
-			event.key === 'Escape' ||
-			($settings?.keyboardShortcuts !== false && matchKeybinding(event) === Shortcut.CLOSE_MODAL)
+			showCancel &&
+			(event.key === 'Escape' ||
+				($settings?.keyboardShortcuts !== false && matchKeybinding(event) === Shortcut.CLOSE_MODAL))
 		) {
+		// [MODIFICATION ENDS]
 			cancelHandler();
 		}
 
@@ -130,7 +137,10 @@
 		class="modal fixed top-0 right-0 left-0 bottom-0 bg-black/60 w-full h-screen max-h-[100dvh] flex justify-center z-99999999 overflow-hidden overscroll-contain"
 		in:fade={{ duration: 10 }}
 		on:mousedown={() => {
-			cancelHandler();
+			// [MODIFICATION BEGINS] - Add cancel button
+			// Original: cancelHandler();
+			if (showCancel) cancelHandler();
+			// [MODIFICATION ENDS]
 		}}
 	>
 		<div
@@ -199,15 +209,19 @@
 				</slot>
 
 				<div class="mt-5 flex justify-between gap-1.5">
-					<button
-						class="flex h-7 items-center justify-center gap-1.5 rounded-lg px-2.5 text-xs font-normal transition disabled:opacity-60 bg-gray-100 hover:bg-gray-100/70 text-gray-800 dark:bg-gray-850 dark:hover:bg-gray-850/60 dark:text-white w-full"
-						on:click={() => {
-							cancelHandler();
-						}}
-						type="button"
-					>
-						{cancelLabel ?? $i18n.t('Cancel')}
-					</button>
+					<!-- [MODIFICATION BEGINS] - Add cancel button (hidden when showCancel is false) -->
+					{#if showCancel}
+						<button
+							class="flex h-7 items-center justify-center gap-1.5 rounded-lg px-2.5 text-xs font-normal transition disabled:opacity-60 bg-gray-100 hover:bg-gray-100/70 text-gray-800 dark:bg-gray-850 dark:hover:bg-gray-850/60 dark:text-white w-full"
+							on:click={() => {
+								cancelHandler();
+							}}
+							type="button"
+						>
+							{cancelLabel ?? $i18n.t('Cancel')}
+						</button>
+					{/if}
+					<!-- [MODIFICATION ENDS] -->
 					<button
 						class="flex h-7 items-center justify-center gap-1.5 rounded-lg bg-gray-900 px-2.5 text-xs font-normal text-white transition hover:bg-black disabled:opacity-60 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white w-full"
 						on:click={() => {
