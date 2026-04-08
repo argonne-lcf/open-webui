@@ -12,8 +12,8 @@ argon2-cffi==25.1.0
 PyJWT[crypto]==2.12.0
 authlib==1.6.9
 
-requests==2.32.5
-aiohttp==3.13.3
+requests==2.33.0
+aiohttp==3.13.4
 async-timeout
 aiocache
 aiofiles
@@ -54,7 +54,7 @@ chromadb==1.4.0
 weaviate-client==4.19.2
 opensearch-py==3.1.0
 
-transformers==4.57.3
+transformers==5.0.0rc3
 sentence-transformers==5.2.0
 accelerate
 pyarrow==20.0.0 # fix: pin pyarrow version to 20 for rpi compatibility #15897
@@ -62,14 +62,14 @@ einops==0.8.1
 
 ftfy==6.3.1
 chardet==5.2.0
-pypdf==6.5.0
+pypdf==6.9.2
 fpdf2==2.8.5
 pymdown-extensions==10.20
 docx2txt==0.9
 python-pptx==1.0.2
 unstructured==0.18.24
 msoffcrypto-tool==5.4.2
-nltk==3.9.3
+nltk==3.9.4
 Markdown==3.10
 pypandoc==1.16.2
 pandas==2.3.3
