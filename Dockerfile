@@ -48,7 +48,7 @@ RUN npm ci --force --legacy-peer-deps
 
 COPY . .
 ENV APP_BUILD_HASH=${BUILD_HASH}
-ARG NODE_OPTIONS="--max-old-space-size=4096"
+ARG NODE_OPTIONS="--max-old-space-size=12288"
 ENV NODE_OPTIONS=${NODE_OPTIONS}
 ENV APP_BUILD_CHANNEL=${BUILD_CHANNEL}
 RUN npm run build && \

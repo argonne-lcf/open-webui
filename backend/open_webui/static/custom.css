@@ -20,6 +20,10 @@
   z-index: 1000;
 }
 
+/* .min-h-screen { */
+/*   min-height: calc(100vh - var(--banner-height)); */
+/* } */
+
 .banner-left {
   display: flex;
   align-items: center;
