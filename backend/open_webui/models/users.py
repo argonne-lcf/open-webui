@@ -409,6 +409,9 @@ class UsersTable:
             session.add(result)
             # [ADDITION BEGINS] - to add globus access token (api keys live in the api_key table)
             if api_key:
+                # ApiKey has no ORM-level ForeignKey, so SQLAlchemy may flush it before
+                # the User row; flush the user first to satisfy api_key_user_id_fkey.
+                await session.flush()
                 now_ts = int(time.time())
                 session.add(
                     ApiKey(
