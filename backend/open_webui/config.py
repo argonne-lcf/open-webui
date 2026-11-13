@@ -2614,12 +2614,29 @@ AUTHORIZED_IDP_DOMAINS = [
 ]
 if not AUTHORIZED_IDP_DOMAINS:
     raise ValueError('AUTHORIZED_IDP_DOMAINS environment variable must be set and contain at least one domain')
+AUTHORIZED_IDP_WILDCARD_DOMAINS = [
+    key[2:] for key in AUTHORIZED_IDP_DOMAINS if key.startswith("*.")
+]
+AUTHORIZED_IDP_DOMAINS = [
+    key for key in AUTHORIZED_IDP_DOMAINS if not key.startswith("*.")
+]
 
 # Dictionary mapping IDP domains to authorized groups
 AUTHORIZED_GROUPS_PER_IDP = {
     key: [v.strip() for v in value.split(',')]
     for key, value in JSONCodec.loads(os.getenv('AUTHORIZED_GROUPS_PER_IDP', '{}')).items()
 }
+AUTHORIZED_GROUPS_PER_IDP_WILDCARD = {
+    key[2:]: value
+    for key, value in AUTHORIZED_GROUPS_PER_IDP.items()
+    if key.startswith("*.")
+}
+AUTHORIZED_GROUPS_PER_IDP = {
+    key: value
+    for key, value in AUTHORIZED_GROUPS_PER_IDP.items()
+    if not key.startswith("*.")
+}
+
 
 ALCF_LIST_ENDPOINTS_URL = os.getenv(
     'ALCF_LIST_ENDPOINTS_URL', 'https://inference-api.alcf.anl.gov/resource_server/list-endpoints'
