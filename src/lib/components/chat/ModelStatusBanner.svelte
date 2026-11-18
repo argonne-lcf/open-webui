@@ -43,19 +43,21 @@
     modelsCount: models.length
   });
 
+  // The gateway does not hold a message while a model starts: it answers at
+  // once with an error saying the model is starting (and starts it if it was
+  // offline). So tell users to resend once the model is live.
+  const STATUS_TEXT: Record<string, string> = {
+    queued: 'is waiting for compute resources. Messages are not answered until it is live.',
+    starting: 'is starting and will be live soon. Messages are not answered until then.',
+    offline: 'is offline. Sending a message will start it; resend it once the model is live.'
+  };
+
   function getStatusText(status: string) {
-    // These keys should be added to translation files:
-    // 'is starting and will be live soon'
-    // 'is currently queued and may take time to respond'
-    // 'is offline, will be queued when used'
-    if (status === 'queued') {
-      return i18n?.t?.('is currently queued and may take time to respond', { defaultValue: 'is currently queued and may take time to respond' }) || 'is currently queued and may take time to respond';
-    } else if (status === 'offline') {
-      return i18n?.t?.('is offline, will be queued when used', { defaultValue: 'is offline, will be queued when used' }) || 'is offline, will be queued when used';
-    } else if (status === 'starting') {
-      return i18n?.t?.('is starting, will be live soon', { defaultValue: 'is starting, will be live soon' }) || 'is starting, will be live soon';
+    const text = STATUS_TEXT[status];
+    if (!text) {
+      return '';
     }
-    return '';
+    return i18n?.t?.(text, { defaultValue: text }) || text;
   }
 </script>
 

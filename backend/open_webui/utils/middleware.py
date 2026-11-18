@@ -3912,7 +3912,14 @@ async def non_streaming_chat_response_handler(response, ctx):
                 error = response_data.get('error')
 
                 if isinstance(error, dict):
-                    error = error.get('detail', error)
+                    # [MODIFICATION BEGINS] - ALCF fork: surface the OpenAI-style
+                    # `error.message` (e.g. the gateway's "Model X is starting; ~Ns
+                    # until ready."); the frontend can't read it inside a dict and
+                    # shows "Server connection failed" instead.
+                    # error = error.get('detail', error)
+                    message = error.get('message')
+                    error = error.get('detail', message if isinstance(message, str) and message else error)
+                    # [MODIFICATION ENDS]
                 else:
                     error = str(error)
 

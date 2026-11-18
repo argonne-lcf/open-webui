@@ -55,7 +55,7 @@ With a high-assurance policy configured, login also forces a fresh Globus authen
 Models on ALCF clusters may be cold, queued or starting, so the UI shows it plainly:
 - **Status filter:** the model selector defaults to **Live**, so users first see models that can answer now. The other statuses are one click away.
 - **Badges:** cluster badges (SOPHIA, METIS, …) appear wherever a model name does, because the same model can run on several clusters.
-- **Status banner:** a banner warns when the selected model isn't live, and timeouts on non-live models get a specific message.
+- **Status banner:** a banner warns when the selected model isn't live. The gateway answers a message to a non-live model at once with a 503 (starting the model if it was offline) rather than holding it, so the banner tells users to resend once the model is live, and the 503's message is shown in the chat.
 - **Clear button on errors:** a failed response can be cleared so the chat can continue.
 - **Reduced parameters:** the advanced-params panel shows only parameters the inference service supports.
 
@@ -105,6 +105,7 @@ The fork is small and additive so rebases stay cheap:
 
 ### Other backend touches
 - `main.py`: `oauth.client_ids` in `/api/config` (the frontend needs the Globus client ID for logout), plus `/oauth/{provider}/token/revoke` and `/oauth/{provider}/signout` (see Known issues).
+- `utils/middleware.py → process_chat_response` (non-streaming error branch): surfaces `error.message` from OpenAI-style error bodies, so the gateway's 503 text ("Model X is starting; ~Ns until ready.") reaches the chat instead of "Server connection failed".
 - `routers/auths.py → signout`: calls the Globus logout URL and skips the OIDC end-session logic for Globus users.
 - `backend/start.sh`: adds `--ssl-keyfile/--ssl-certfile` when `SSL_CERTFILE` and `SSL_KEYFILE` point to existing files.
 - `Dockerfile`: `NODE_OPTIONS=--max-old-space-size=4096`, `npm ci --force --legacy-peer-deps`.
