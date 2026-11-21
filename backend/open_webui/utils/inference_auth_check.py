@@ -1,6 +1,12 @@
 import aiohttp
 import logging
-from open_webui.config import GATEWAY_API_WHOAMI_URL, AUTHORIZED_IDP_DOMAINS, AUTHORIZED_GROUPS_PER_IDP
+from open_webui.config import (
+    GATEWAY_API_WHOAMI_URL, 
+    AUTHORIZED_IDP_DOMAINS,
+    AUTHORIZED_IDP_WILDCARD_DOMAINS, 
+    AUTHORIZED_GROUPS_PER_IDP,
+    AUTHORIZED_GROUPS_PER_IDP_WILDCARD,
+)
 from open_webui.env import AIOHTTP_CLIENT_SESSION_SSL
 from pydantic import BaseModel
 from typing import List
@@ -16,6 +22,17 @@ class UserPydantic(BaseModel):
     idp_id: str
     idp_name: str
     auth_service: str
+
+
+# Wildcard domain match
+def domain_matches_wildcard(domain: str, wildcard_suffix: str) -> bool:
+    """
+    Whether a domain is a subdomain of a wildcard entry. The suffix is the
+    wildcard without its leading "*." (e.g. "edu" for "*.edu"). The match is
+    anchored on a dot so that "*.edu" matches "uchicago.edu" but not "fakeedu".
+    """
+    return len(wildcard_suffix) > 0 and domain.endswith("." + wildcard_suffix)
+
 
 async def validate_user_access_token(user_access_token):
     """
@@ -48,13 +65,26 @@ async def validate_user_access_token(user_access_token):
 
                     # Make sure the user used an authorized IDP
                     user_idp_domain = user.username.split("@")[-1]
-                    if user_idp_domain not in AUTHORIZED_IDP_DOMAINS:
+                    session_domain_in_authorized = (
+                        user_idp_domain in AUTHORIZED_IDP_DOMAINS
+                        or any(
+                            domain_matches_wildcard(user_idp_domain, idp_wildcard)
+                            for idp_wildcard in AUTHORIZED_IDP_WILDCARD_DOMAINS
+                        )
+                    )
+                    if not session_domain_in_authorized:
                         error_message = f"Error: Permission denied. Must authenticate with {AUTHORIZED_IDP_DOMAINS}. Currently authenticated as {user.username}."
                         return False, None, error_message
 
                     # Make sure the user is part of an authorized group (if applicable for the IDP)
+                    authorized_groups: set[str] | None = None
                     if user_idp_domain in AUTHORIZED_GROUPS_PER_IDP:
-                        group_overlap = set(user.user_group_uuids) & set(AUTHORIZED_GROUPS_PER_IDP[user_idp_domain])
+                        authorized_groups = set(AUTHORIZED_GROUPS_PER_IDP[user_idp_domain])
+                    for idp_wildcard, groups in AUTHORIZED_GROUPS_PER_IDP_WILDCARD.items():
+                        if domain_matches_wildcard(user_idp_domain, idp_wildcard):
+                            authorized_groups = (authorized_groups or set()) | set(groups)
+                    if authorized_groups is not None:
+                        group_overlap = set(user.user_group_uuids) & authorized_groups
                         if len(group_overlap) == 0:
                             error_message = f"Error: Permission denied. User ({user.name} - {user.username}) not part of the Globus Groups applied for {user.idp_name}."
                             return False, None, error_message
